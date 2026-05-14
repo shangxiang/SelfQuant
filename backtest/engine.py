@@ -15,10 +15,9 @@ class BacktestEngine:
     不内置任何策略逻辑——全部通过构造参数注入。
 
     每日流程：
-        1. 更新持仓市值，记录当日 NAV
-        2. 若当日有持仓 → 调用卖出策略，执行减仓/清仓
-        3. 若当日无持仓 → 调用选股策略 + 择时策略，执行建仓
-    """
+        T 日：更新持仓市值 → 记录 NAV → 执行卖出 → 执行 T-1 日信号的买入 → 生成 T 日信号（供 T+1 消费）
+    信号与成交错开一天，避免使用当日收盘价生成信号后立即以当日收盘价成交的未来函数问题。
+"""
 
     PRICE_COL = 'close_x'
     STOCK_COL = 'ts_code'
@@ -107,17 +106,10 @@ class BacktestEngine:
     # ------------------------------------------------------------------ #
 
     def _execute_buys(
-        self, today: str, invest_cash: float,
+        self, today: str, invest_cash: float, signals: pd.DataFrame,
         positions: dict, price_index: pd.DataFrame, trade_log: list
     ) -> float:
-        """训练模型，获取信号，按等权买入 top_n 只股票，返回实际花费现金。"""
-        ok = self.strategy.fit(today)
-        if not ok:
-            return 0.0
-        signals = self.strategy.generate_signals(today)
-        if signals is None or signals.empty:
-            return 0.0
-
+        """按前一日信号、以今日收盘价等权买入 top_n 只股票，返回实际花费现金。"""
         top = signals.head(min(self.cfg.top_n, len(signals)))
         n = len(top)
         if n == 0:
@@ -130,7 +122,7 @@ class BacktestEngine:
             if stock not in price_index.index:
                 continue
             buy_price = price_index.loc[stock, self.PRICE_COL]
-            shares = int(per_stock / buy_price)
+            shares = int(per_stock / buy_price / 100) * 100
             if shares <= 0:
                 continue
             cost = shares * buy_price * (1 + self.cfg.commission)
@@ -169,6 +161,7 @@ class BacktestEngine:
         positions: dict = {}
         daily_nav: list = []
         trade_log: list = []
+        pending_buy: tuple | None = None  # (signals_df, timing_ratio) from previous day
 
         for today in trade_dates:
             df_today = self.loader.get_data(today)
@@ -184,19 +177,27 @@ class BacktestEngine:
             # ② 记录当日 NAV（交易前估值）
             daily_nav.append((today, cash + self._holdings_value(positions)))
 
-            # ③ 有持仓 → 执行卖出策略
+            # ③ 执行卖出（用今日收盘价）
             if positions:
                 cash += self._execute_sells(positions, today, all_dates, trade_log)
 
-            # ④ 无持仓 → 执行选股 + 择时 + 买入
-            else:
-                timing_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
-                if timing_ratio > 0:
-                    vol_scale = self._vol_ratio(daily_nav)
-                    invest = cash * timing_ratio * vol_scale
-                    cash -= self._execute_buys(today, invest, positions, price_index, trade_log)
+            # ④ 执行前一日信号的买入（用今日收盘价成交，信号来自昨日收盘后）
+            if pending_buy is not None:
+                signals, timing_ratio = pending_buy
+                vol_scale = self._vol_ratio(daily_nav)
+                invest = cash * timing_ratio * vol_scale
+                cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log)
+            pending_buy = None
 
-            # ⑤ 交易后更新当日 NAV
+            # ⑤ 用今日数据训练并生成信号，供明日买入消费
+            if self.strategy.fit(today):
+                signals = self.strategy.generate_signals(today)
+                if signals is not None and not signals.empty:
+                    t_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
+                    if t_ratio > 0:
+                        pending_buy = (signals, t_ratio)
+
+            # ⑥ 交易后更新当日 NAV
             daily_nav[-1] = (today, cash + self._holdings_value(positions))
 
         # ---- 回测结束，强制平仓剩余持仓 ----
