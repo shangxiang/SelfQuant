@@ -5,6 +5,7 @@ from strategy.selection.base_strategy import BaseStrategy
 from strategy.sell.base_sell_strategy import BaseSellStrategy
 from strategy.sell.hold_n_days import HoldNDaysSellStrategy
 from backtest.timing import BaseTimingStrategy
+from typing import Optional
 
 
 class BacktestEngine:
@@ -27,8 +28,8 @@ class BacktestEngine:
         strategy: BaseStrategy,
         data_loader,
         config,
-        timing: BaseTimingStrategy | None = None,
-        sell_strategy: BaseSellStrategy | None = None,
+        timing: Optional[BaseTimingStrategy] = None,
+        sell_strategy: Optional[BaseSellStrategy] = None,
     ):
         self.strategy = strategy
         self.loader = data_loader
@@ -87,6 +88,8 @@ class BacktestEngine:
                 continue
 
             sell_shares = pos['shares'] if ratio == 0.0 else int(pos['shares'] * (1 - ratio))
+            # print("stock:", stock)
+            # print("sell_shares", sell_shares)
             if sell_shares <= 0:
                 continue
 
@@ -161,7 +164,7 @@ class BacktestEngine:
         positions: dict = {}
         daily_nav: list = []
         trade_log: list = []
-        pending_buy: tuple | None = None  # (signals_df, timing_ratio) from previous day
+        pending_buy: Optional[tuple] = None  # (signals_df, timing_ratio) from previous day
 
         for today in trade_dates:
             df_today = self.loader.get_data(today)
@@ -181,13 +184,15 @@ class BacktestEngine:
             if positions:
                 cash += self._execute_sells(positions, today, all_dates, trade_log)
 
-            # ④ 执行前一日信号的买入（用今日收盘价成交，信号来自昨日收盘后）
-            if pending_buy is not None:
-                signals, timing_ratio = pending_buy
-                vol_scale = self._vol_ratio(daily_nav)
-                invest = cash * timing_ratio * vol_scale
-                cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log)
-            pending_buy = None
+            # ④ 执行前一日信号的买入（用今日收盘价成交，信号来自昨日收盘后，只有清仓了才执行，假设有剩余仓位，即便能买也不买，省的麻烦）
+            if not positions:
+                if pending_buy is not None:
+                    signals, timing_ratio = pending_buy
+                    vol_scale = self._vol_ratio(daily_nav)
+                    invest = cash * timing_ratio * vol_scale
+                    print("today is ", today)
+                    cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log)
+                pending_buy = None
 
             # ⑤ 用今日数据训练并生成信号，供明日买入消费
             if self.strategy.fit(today):
@@ -199,6 +204,13 @@ class BacktestEngine:
 
             # ⑥ 交易后更新当日 NAV
             daily_nav[-1] = (today, cash + self._holdings_value(positions))
+            print("cash is ", cash)
+            print("positions is ", positions)
+            prof = 0
+            for stock in positions:
+                prof += positions[stock]['shares'] * positions[stock]['current_price']
+            print("prof is ", prof)
+            print("今天总共", cash + prof)
 
         # ---- 回测结束，强制平仓剩余持仓 ----
         if positions:

@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+from typing import Optional
 
 
 class DataLoader:
@@ -13,7 +14,7 @@ class DataLoader:
         all_dates = sorted(cal['cal_date'].dropna().str.strip().tolist())
         self.all_dates = [d for d in all_dates if d >= '20200101']
 
-    def get_data(self, date_str: str) -> pd.DataFrame | None:
+    def get_data(self, date_str: str) -> Optional[pd.DataFrame]:
         if date_str in self.cache:
             return self.cache[date_str]
         path = os.path.join(self.cfg.data_dir, f"{date_str}.csv")

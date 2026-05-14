@@ -44,4 +44,5 @@ class MATiming(BaseTimingStrategy):
         ))
 
     def get_position_ratio(self, date_str: str) -> float:
-        return self._map.get(date_str, 1.0)
+        # return self._map.get(date_str, 1.0)
+        return 1.0

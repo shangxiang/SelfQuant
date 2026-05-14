@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import warnings
 from sklearn.linear_model import ElasticNetCV
+from typing import Optional
 
 from strategy.selection.base_strategy import BaseStrategy
 
@@ -77,6 +78,7 @@ class ElasticNetStrategy(BaseStrategy):
     def fit(self, date_str: str) -> bool:
         all_dates = self.loader.get_trading_dates()
         if date_str not in all_dates:
+            print("今日并非交易日")
             return False
         today_idx = all_dates.index(date_str)
         X, y = self._build_train_data(today_idx)
@@ -98,7 +100,7 @@ class ElasticNetStrategy(BaseStrategy):
             self._weights = raw_weights
         return True
 
-    def generate_signals(self, date_str: str) -> pd.DataFrame | None:
+    def generate_signals(self, date_str: str) -> Optional[pd.DataFrame]:
         """返回当日所有股票的打分，不依赖 label（可用于实盘）"""
         if self._weights is None:
             return None

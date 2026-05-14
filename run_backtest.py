@@ -19,7 +19,7 @@ if __name__ == '__main__':
     strategy = ElasticNetStrategy(s_cfg, loader)
 
     # 纯因子评估（Rank IC + 分层收益）
-    strategy.simple_backtest('20230101', '20260331')
+    #strategy.simple_backtest('20230101', '20260331')
 
     # 模拟交易回测
     timing = MATiming(

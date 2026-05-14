@@ -35,6 +35,7 @@ def series_to_section(colume_list=None):
         #             basic_df = pd.merge(basic_df, group, how="left", on=["trade_date", "ts_code"])
         #             basic_df.to_csv(output_file_name, index=False)
         # else:
+        output_file_name.drop_duplicates(subset="ts_code", keep='first', inplace=True, ignore_index=False)
         group.to_csv(output_file_name, index=False)
         print("已保存", str(trade_date))
     pass
@@ -159,7 +160,15 @@ def standardize():
         df.to_csv(file, index=False)
         print("标准化", str(file))
 
+def section_duplicates():
+    path = "data/section/"
+    for file in glob.glob(path + "*.csv"):
+        df = pd.read_csv(file)
+        df.drop_duplicates(subset="ts_code", keep='first', inplace=True, ignore_index=False)
+        df.to_csv(file, index=False)
+
 
 if __name__ == '__main__':
-    series_to_section()
-    standardize()
+    # series_to_section()
+    # standardize()
+    section_duplicates()
