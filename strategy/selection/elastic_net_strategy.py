@@ -137,17 +137,18 @@ class ElasticNetStrategy(BaseStrategy):
             if df is None:
                 continue
 
-            needed = [self.cfg.stock_col] + self.cfg.factor_cols + [self.cfg.label_col]
-            if not all(c in df.columns for c in needed):
+            if self.cfg.stock_col not in df.columns or self.cfg.label_col not in df.columns:
                 continue
 
-            sub = df[needed].copy()
+            sub = df[[self.cfg.stock_col, self.cfg.label_col]].copy()
             sub = sub.dropna(subset=[self.cfg.label_col])
             if sub.empty:
                 continue
 
-            # 因子缺失值填 0，避免模型报错（标准化后缺失通常接近均值）
-            sub[self.cfg.factor_cols] = sub[self.cfg.factor_cols].astype(float).fillna(0.0)
+            # 因子列缺失时填 0（历史数据不足导致的缺列，如动量因子在数据起始期）
+            for fc in self.cfg.factor_cols:
+                sub[fc] = df[fc].astype(float) if fc in df.columns else 0.0
+            sub[self.cfg.factor_cols] = sub[self.cfg.factor_cols].fillna(0.0)
             X_list.append(sub[self.cfg.factor_cols].values)
             y_list.append(sub[self.cfg.label_col].astype(float).values)
 
@@ -220,12 +221,14 @@ class ElasticNetStrategy(BaseStrategy):
         if df is None:
             return None
 
-        needed_factors = [self.cfg.stock_col] + self.cfg.factor_cols
-        if not all(c in df.columns for c in needed_factors):
+        if self.cfg.stock_col not in df.columns:
             return None
 
-        df_valid = df[needed_factors].copy()
-        df_valid[self.cfg.factor_cols] = df_valid[self.cfg.factor_cols].astype(float).fillna(0.0)
+        df_valid = df[[self.cfg.stock_col]].copy()
+        # 因子列缺失时填 0（历史数据不足导致的缺列，如动量因子在数据起始期）
+        for fc in self.cfg.factor_cols:
+            df_valid[fc] = df[fc].astype(float) if fc in df.columns else 0.0
+        df_valid[self.cfg.factor_cols] = df_valid[self.cfg.factor_cols].fillna(0.0)
 
         # 矩阵乘法：每只股票的各因子值与权重向量做内积，得到综合打分
         scores = df_valid[self.cfg.factor_cols].values.dot(self._weights)

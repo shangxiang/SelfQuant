@@ -195,7 +195,7 @@ def merge_basic_daily_data():
 
         daily_df = pd.concat(all_daily, ignore_index=True)
         daily_df = daily_df.set_index(['ts_code', 'trade_date']).sort_index()
-        daily_df.to_csv(f"data/series/{section_name}.csv")
+        # daily_df.to_csv(f"data/series/{section_name}.csv")
         print(f"合并 {section_name} → {len(daily_df)} 行")
 
         if final_result is None:
