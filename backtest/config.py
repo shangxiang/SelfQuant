@@ -1,17 +1,26 @@
 class BacktestConfig:
+    """
+    回测引擎参数配置。
+
+    只包含与交易模拟相关的参数，策略超参数由各策略自身的 Config 类管理。
+    """
+
     def __init__(self):
-        # 选股参数
-        self.top_n = 100
+        # ---- 选股参数 ----
+        # 每次建仓选取打分最高的前 N 只股票，等权分配资金
+        self.top_n: int = 100
 
-        # 交易成本
-        self.commission = 0.0001         # 万分之一（单边）
-        self.initial_capital = 1_000_000
+        # ---- 交易成本 ----
+        # 单边佣金费率（买入和卖出各收一次），万分之一对应互联网券商折扣价
+        self.commission: float = 0.0001     # 万分之一，单边
+        # 初始资金（元）
+        self.initial_capital: float = 1_000_000
 
-        # 波动率控制（use_vol_control=False 则不限制仓位上限）
-        self.use_vol_control = False
-        self.target_vol = 0.15
-        self.vol_window = 20
+        # ---- 风控（预留接口，None 表示当前不启用）----
+        # 个股止损阈值：当持仓浮亏达到此比例时触发清仓，如 -0.08 表示 8% 止损
+        # 需在自定义 SellStrategy 中读取并使用，引擎本身不处理
+        self.stop_loss: float | None = None
 
-        # 风控（预留接口，None 表示不启用）
-        self.stop_loss = None            # 如 -0.08 表示 8% 止损
-        self.take_profit = None          # 如 0.15 表示 15% 止盈
+        # 个股止盈阈值：当持仓浮盈达到此比例时触发清仓，如 0.15 表示 15% 止盈
+        # 需在自定义 SellStrategy 中读取并使用，引擎本身不处理
+        self.take_profit: float | None = None

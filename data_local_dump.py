@@ -1,134 +1,249 @@
 import os
-
-import tushare as ts
-import pandas as pd
-from tushare import margin_detail
-from tushare.coins import market
-from data_api.tushareApi import TushareDataSource
-from datetime import datetime, timedelta
 import time
+import pandas as pd
+from data_api.tushareApi import TushareDataSource
+
+START_DATE = "20250101"
+END_DATE   = "20260507"
 
 
-class DownloadData():
+class DownloadData:
     """
-    用于下载线上数据到本地进行回测
+    从 Tushare 下载原始数据到本地，供后续因子计算和回测使用。
+
+    所有路径沿用现有约定（data/raw/...），目录不存在时自动创建。
+    重复运行时已存在的文件会被跳过，支持断点续传。
     """
+
+    # 各类数据的本地存储路径
+    STOCK_LIST_PATH     = "data/raw/stock_list/stock_list.csv"
+    TRADE_CAL_PATH      = "data/raw/trade_cal.csv"
+    STOCK_DATA_DIR      = "data/raw/stock_data/"
+    DAILY_BASIC_DIR     = "data/raw/daily_basic_data/"
+    MONEYFLOW_DIR       = "data/raw/moneyflow/"
+    MARGIN_DETAIL_DIR   = "data/raw/margin_detail/"
+    TOP_LIST_DIR        = "data/raw/top_list/"
+    INCOME_DIR          = "data/raw/income/"
+    BALANCESHEET_DIR    = "data/raw/balancesheet/"
+    CASHFLOW_DIR        = "data/raw/cashflow/"
+    INDEX_BASIC_DIR     = "data/raw/index_basic/"
+    INDEX_DAILY_DIR     = "data/raw/index_daily/"
+
     def __init__(self, api=TushareDataSource):
         self.api = api()
-        self.stock_list_path = "data/raw/stock_list/stock_list.csv"
 
-    def get_local_calender(self):
-        trade_cal_path = "data/raw/trade_cal.csv"
-        df = pd.read_csv(trade_cal_path)
-        trade_date = df['cal_date']
-        return trade_date
+    # ------------------------------------------------------------------ #
+    #  工具方法                                                             #
+    # ------------------------------------------------------------------ #
 
-    def stock_list(self):
+    @staticmethod
+    def _ensure_dir(path: str) -> None:
+        """路径不存在时递归创建，存在时不报错。"""
+        os.makedirs(path, exist_ok=True)
+
+    def _get_trading_dates(self, start: str = START_DATE, end: str = END_DATE) -> list[str]:
+        """
+        从本地交易日历读取指定区间内的交易日列表（仅 is_open=1 的日期）。
+        调用前需确保 TRADE_CAL_PATH 已下载。
+        """
+        df = pd.read_csv(self.TRADE_CAL_PATH, dtype={'cal_date': str, 'is_open': int})
+        mask = (df['cal_date'] >= start) & (df['cal_date'] <= end) & (df['is_open'] == 1)
+        return sorted(df.loc[mask, 'cal_date'].tolist())
+
+    def _get_stock_list(self) -> list[str]:
+        """从本地股票列表文件读取全量 ts_code。调用前需确保已下载。"""
+        return pd.read_csv(self.STOCK_LIST_PATH)['ts_code'].tolist()
+
+    # ------------------------------------------------------------------ #
+    #  基础元数据                                                           #
+    # ------------------------------------------------------------------ #
+
+    def trade_cal(self, start: str = "20100101", end: str = END_DATE) -> None:
+        """下载交易日历到本地。覆盖写入（每次获取全量）。"""
+        self._ensure_dir(os.path.dirname(self.TRADE_CAL_PATH))
+        print(f"下载交易日历 {start} ~ {end} ...")
+        df = self.api.get_trade_calender(startdate=start, enddate=end)
+        df.to_csv(self.TRADE_CAL_PATH, index=False)
+        print(f"  已保存 → {self.TRADE_CAL_PATH}")
+
+    def stock_list(self) -> None:
+        """下载当前上市 A 股列表（主板）。覆盖写入。"""
+        self._ensure_dir(os.path.dirname(self.STOCK_LIST_PATH))
+        print("下载股票列表 ...")
         df = self.api.get_stock_list()
-        df.to_csv(self.stock_list_path)
+        df.to_csv(self.STOCK_LIST_PATH, index=False)
+        print(f"  已保存 → {self.STOCK_LIST_PATH}（{len(df)} 只）")
 
-    def stock_data(self):
-        stock_list_df = pd.read_csv(self.stock_list_path)
-        stock_list = stock_list_df['ts_code'].tolist()
-        stock_data_path = "data/raw/stock_data/"
-        for ts_code in stock_list:
-            df = self.api.get_stock_data(code=ts_code,startdate="20230101", enddate=datetime.today().date().strftime("%Y%m%d"))
-            df.to_csv(stock_data_path + ts_code + ".csv")
-            time.sleep(0.1)
-
-    def daily_basic_data(self):
-        trade_cal = self.get_local_calender()
-        #trade_cal.to_csv("data/raw/trade_cal.csv")
-        stock_data_path = "data/raw/daily_basic_data/"
-        for date in trade_cal['cal_date']:
-            print(date)
-            df = self.api.get_daily_basic_data(date=date)
-            df.to_csv(stock_data_path + date + ".csv")
-            time.sleep(0.1)
-
-    def moneyflow(self):
-        trade_date = self.get_local_calender()
-        moneyflow_path = "data/raw/moneyflow/"
-        for date in trade_date:
-            date = str(date)
-            print(date)
-            df = self.api.get_moneyflow(date=date)
-            df.to_csv(moneyflow_path + date + ".csv")
-            time.sleep(0.2)
-
-    def margin_detail(self):
-        trade_date = self.get_local_calender()
-        margin_detail_path = "data/raw/margin_detail/"
-        for date in trade_date:
-            date = str(date)
-            print(date)
-            df = self.api.get_margin_detail(date=date)
-            df.to_csv(margin_detail_path + date + ".csv")
-            time.sleep(0.2)
-
-    def top_list(self):
-        trade_date = self.get_local_calender()
-        top_list_path = "data/raw/top_list/"
-        for date in trade_date:
-            date = str(date)
-            print(date)
-            df = self.api.get_top_list(date=date)
-            df.to_csv(top_list_path + date + ".csv")
-            time.sleep(0.4)
-
-    def income(self):
-        stock_list_df = pd.read_csv(self.stock_list_path)
-        stock_list = stock_list_df['ts_code'].tolist()
-        stock_data_path = "data/raw/income/"
-        for ts_code in stock_list:
-            print(ts_code)
-
-            df = self.api.get_income(code=ts_code, startdate="20230101",
-                                         enddate="20260407")
-            df.to_csv(stock_data_path + ts_code + ".csv")
-            time.sleep(0.4)
-
-    def balancesheet(self):
-        stock_list_df = pd.read_csv(self.stock_list_path)
-        stock_list = stock_list_df['ts_code'].tolist()
-        stock_data_path = "data/raw/balancesheet/"
-        for ts_code in stock_list:
-            print(ts_code)
-            df = self.api.get_balancesheet(code=ts_code, startdate="20230101",
-                                         enddate="20260407")
-            df.to_csv(stock_data_path + ts_code + ".csv")
-            time.sleep(0.4)
-
-    def cashflow(self):
-        stock_list_df = pd.read_csv(self.stock_list_path)
-        stock_list = stock_list_df['ts_code'].tolist()
-        stock_data_path = "data/raw/cashflow/"
-        for ts_code in stock_list:
-            print(ts_code)
-            df = self.api.get_cashflow(code=ts_code, startdate="20230101",
-                                         enddate="20260407")
-            df.to_csv(stock_data_path + ts_code + ".csv")
-            time.sleep(0.4)
-
-    def index_basic(self):
-        stock_data_path = "data/raw/index_basic/"
-        market_list = ["SW", "CSI", "SSE", "SZSE", "MSCI"]
-        for market in market_list:
+    def index_basic(self) -> None:
+        """下载各市场的指数基础信息（SW / CSI / SSE / SZSE / MSCI）。"""
+        self._ensure_dir(self.INDEX_BASIC_DIR)
+        for market in ["SW", "CSI", "SSE", "SZSE", "MSCI"]:
+            path = os.path.join(self.INDEX_BASIC_DIR, f"{market}.csv")
+            print(f"下载指数基础信息 market={market} ...")
             df = self.api.get_index_basic(market=market)
-            df.to_csv(stock_data_path + market + ".csv")
+            df.to_csv(path, index=False)
             time.sleep(0.4)
 
-    def index_daily(self):
-        SW_code_list = pd.read_csv("data/raw/index_basic/SZSE.csv")
-        code_list = SW_code_list['ts_code'].tolist()
-        stock_data_path = "data/raw/index_daily/"
-        for code in code_list:
-            df = self.api.get_index_daily(ts_code=code, startdate="20230101", enddate="20260407")
-            df.to_csv(stock_data_path + code + ".csv")
+    # ------------------------------------------------------------------ #
+    #  按日期下载（每个交易日一个文件）                                     #
+    # ------------------------------------------------------------------ #
+
+    def daily_basic_data(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每个交易日的股票基本面快照（PE/PB/市值等）。"""
+        self._ensure_dir(self.DAILY_BASIC_DIR)
+        dates = self._get_trading_dates(start, end)
+        for date in dates:
+            path = os.path.join(self.DAILY_BASIC_DIR, f"{date}.csv")
+            if os.path.exists(path):
+                continue   # 已下载，跳过
+            print(f"  daily_basic {date}")
+            df = self.api.get_daily_basic_data(date=date)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
+            time.sleep(0.1)
+
+    def moneyflow(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每个交易日的大中小单净流入数据。"""
+        self._ensure_dir(self.MONEYFLOW_DIR)
+        dates = self._get_trading_dates(start, end)
+        for date in dates:
+            path = os.path.join(self.MONEYFLOW_DIR, f"{date}.csv")
+            if os.path.exists(path):
+                continue
+            print(f"  moneyflow {date}")
+            df = self.api.get_moneyflow(date=date)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
+            time.sleep(0.2)
+
+    def margin_detail(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每个交易日的融资融券明细。"""
+        self._ensure_dir(self.MARGIN_DETAIL_DIR)
+        dates = self._get_trading_dates(start, end)
+        for date in dates:
+            path = os.path.join(self.MARGIN_DETAIL_DIR, f"{date}.csv")
+            if os.path.exists(path):
+                continue
+            print(f"  margin_detail {date}")
+            df = self.api.get_margin_detail(date=date)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
+            time.sleep(0.2)
+
+    def top_list(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每个交易日的龙虎榜数据。"""
+        self._ensure_dir(self.TOP_LIST_DIR)
+        dates = self._get_trading_dates(start, end)
+        for date in dates:
+            path = os.path.join(self.TOP_LIST_DIR, f"{date}.csv")
+            if os.path.exists(path):
+                continue
+            print(f"  top_list {date}")
+            df = self.api.get_top_list(date=date)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
             time.sleep(0.4)
 
+    # ------------------------------------------------------------------ #
+    #  按股票下载（每只股票一个文件）                                       #
+    # ------------------------------------------------------------------ #
+
+    def stock_data(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每只股票的前复权日线行情。"""
+        self._ensure_dir(self.STOCK_DATA_DIR)
+        for ts_code in self._get_stock_list():
+            path = os.path.join(self.STOCK_DATA_DIR, f"{ts_code}.csv")
+            if os.path.exists(path):
+                continue
+            print(f"  stock_data {ts_code}")
+            df = self.api.get_stock_data(code=ts_code, startdate=start, enddate=end)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
+            time.sleep(0.1)
+
+    def income(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每只股票的利润表。"""
+        self._ensure_dir(self.INCOME_DIR)
+        for ts_code in self._get_stock_list():
+            path = os.path.join(self.INCOME_DIR, f"{ts_code}.csv")
+            if os.path.exists(path):
+                continue
+            print(f"  income {ts_code}")
+            df = self.api.get_income(code=ts_code, startdate=start, enddate=end)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
+            time.sleep(0.4)
+
+    def balancesheet(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每只股票的资产负债表。"""
+        self._ensure_dir(self.BALANCESHEET_DIR)
+        for ts_code in self._get_stock_list():
+            path = os.path.join(self.BALANCESHEET_DIR, f"{ts_code}.csv")
+            if os.path.exists(path):
+                continue
+            print(f"  balancesheet {ts_code}")
+            df = self.api.get_balancesheet(code=ts_code, startdate=start, enddate=end)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
+            time.sleep(0.4)
+
+    def cashflow(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每只股票的现金流量表。"""
+        self._ensure_dir(self.CASHFLOW_DIR)
+        for ts_code in self._get_stock_list():
+            path = os.path.join(self.CASHFLOW_DIR, f"{ts_code}.csv")
+            if os.path.exists(path):
+                continue
+            print(f"  cashflow {ts_code}")
+            df = self.api.get_cashflow(code=ts_code, startdate=start, enddate=end)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
+            time.sleep(0.4)
+
+    def index_daily(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载 SZSE 全部指数的日线行情。"""
+        self._ensure_dir(self.INDEX_DAILY_DIR)
+        index_list_path = os.path.join(self.INDEX_BASIC_DIR, "SZSE.csv")
+        code_list = pd.read_csv(index_list_path)['ts_code'].tolist()
+        for ts_code in code_list:
+            path = os.path.join(self.INDEX_DAILY_DIR, f"{ts_code}.csv")
+            if os.path.exists(path):
+                continue
+            print(f"  index_daily {ts_code}")
+            df = self.api.get_index_daily(ts_code=ts_code, startdate=start, enddate=end)
+            if df is None or df.empty:
+                continue
+            df.to_csv(path, index=False)
+            time.sleep(0.4)
 
 
 if __name__ == '__main__':
-    download = DownloadData()
-    download.index_daily()
+    d = DownloadData()
+
+    # ① 基础元数据（其他方法依赖这三个，必须先跑）
+    d.trade_cal()       # 交易日历（全量，从2010年起）
+    d.stock_list()      # 股票列表
+    d.index_basic()     # 指数基础信息
+
+    # ② 按日期下载
+    d.daily_basic_data()
+    d.moneyflow()
+    d.margin_detail()
+    d.top_list()
+
+    # ③ 按股票下载（数量多，耗时较长）
+    d.stock_data()
+    d.income()
+    d.balancesheet()
+    d.cashflow()
+
+    # ④ 指数日线（依赖 index_basic 已下载）
+    d.index_daily()

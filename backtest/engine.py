@@ -13,14 +13,24 @@ class BacktestEngine:
     模拟交易回测引擎。
 
     职责：管理资金、模拟买卖、统计绩效。
-    不内置任何策略逻辑——全部通过构造参数注入。
+    不内置任何策略逻辑——选股、择时、卖出全部通过构造参数注入，可自由替换。
 
-    每日流程：
-        T 日：更新持仓市值 → 记录 NAV → 执行卖出 → 执行 T-1 日信号的买入 → 生成 T 日信号（供 T+1 消费）
-    信号与成交错开一天，避免使用当日收盘价生成信号后立即以当日收盘价成交的未来函数问题。
-"""
+    信号与成交时序（避免未来函数）：
+        T 日收盘后：fit(T) + generate_signals(T) → 存入 pending_buy
+        T+1 日收盘：用 pending_buy 里的信号以 T+1 收盘价成交
 
+    每日完整流程：
+        ① 用今日收盘价更新持仓市值
+        ② 记录今日 NAV（交易前估值，反映昨日持仓的当日价值变化）
+        ③ 执行卖出策略（若有持仓）
+        ④ 执行前一日信号的买入（仅在全部清仓后触发，避免新旧持仓混仓）
+        ⑤ 用今日数据生成明日信号
+        ⑥ 更新今日 NAV（交易后）
+    """
+
+    # 截面 CSV 中的收盘价列名（与 stock_list 合并后 close 变为 close_x）
     PRICE_COL = 'close_x'
+    # 股票代码列名，用于 DataFrame 索引和 position dict 的 key
     STOCK_COL = 'ts_code'
 
     def __init__(
@@ -31,11 +41,20 @@ class BacktestEngine:
         timing: Optional[BaseTimingStrategy] = None,
         sell_strategy: Optional[BaseSellStrategy] = None,
     ):
+        """
+        Parameters
+        ----------
+        strategy      : BaseStrategy          选股策略，负责 fit 和 generate_signals
+        data_loader   : DataLoader            截面数据加载器
+        config        : BacktestConfig        回测参数（top_n、commission 等）
+        timing        : BaseTimingStrategy    择时策略，None 表示始终满仓
+        sell_strategy : BaseSellStrategy      卖出策略，None 时默认持有5天清仓
+        """
         self.strategy = strategy
         self.loader = data_loader
         self.cfg = config
         self.timing = timing
-        # 未指定卖出策略时，默认持有5天清仓
+        # 未指定卖出策略时，默认持有5个交易日后全部清仓
         self.sell_strategy = sell_strategy if sell_strategy is not None else HoldNDaysSellStrategy(5)
 
     # ------------------------------------------------------------------ #
@@ -43,7 +62,15 @@ class BacktestEngine:
     # ------------------------------------------------------------------ #
 
     def _mark_prices(self, positions: dict, price_index: pd.DataFrame) -> None:
-        """将今日收盘价写入各持仓，无价格则沿用成本价"""
+        """
+        将今日收盘价写入各持仓的 current_price 字段。
+        若当日该股票无行情数据（停牌等），保留买入价作为估值，避免 NAV 出现 None。
+
+        Parameters
+        ----------
+        positions   : dict           {ts_code: pos_dict}，直接修改 current_price 字段
+        price_index : pd.DataFrame   以 ts_code 为索引的当日截面数据
+        """
         for stock, pos in positions.items():
             pos['current_price'] = (
                 price_index.loc[stock, self.PRICE_COL]
@@ -52,15 +79,8 @@ class BacktestEngine:
             )
 
     def _holdings_value(self, positions: dict) -> float:
+        """计算当前持仓总市值（按 current_price 估值）。"""
         return sum(pos['shares'] * pos['current_price'] for pos in positions.values())
-
-    def _vol_ratio(self, daily_nav: list) -> float:
-        """波动率目标控制：返回仓位缩放系数"""
-        if not self.cfg.use_vol_control or len(daily_nav) < self.cfg.vol_window:
-            return 1.0
-        nav_s = pd.Series([v[1] for v in daily_nav])
-        rv = nav_s.pct_change().dropna().iloc[-self.cfg.vol_window:].std() * np.sqrt(252)
-        return min(1.0, self.cfg.target_vol / rv) if rv > 0 else 1.0
 
     # ------------------------------------------------------------------ #
     #  卖出执行                                                             #
@@ -70,12 +90,28 @@ class BacktestEngine:
         self, positions: dict, today: str, all_dates: list, trade_log: list
     ) -> float:
         """
-        调用卖出策略，执行减仓/清仓，返回卖出所得现金。
-        keep_ratio:
+        调用卖出策略获取各持仓的 keep_ratio，按比例卖出对应股份，返回卖出所得现金。
+
+        keep_ratio 含义：
             1.0 → 不动
-            0.0 → 全卖
-            0~1 → 按比例减仓
+            0.0 → 全部卖出
+            0~1 → 保留对应比例，其余卖出
+
+        部分卖出时，sell_shares 向下取整到整数股（未考虑手数约束，精度误差极小）。
+        卖出后 pos['shares'] 降为 0 的持仓从 positions 中删除。
+
+        Parameters
+        ----------
+        positions : dict        当前持仓字典，原地修改
+        today     : str         当日日期 YYYYMMDD
+        all_dates : list[str]   完整交易日历
+        trade_log : list        交易记录，追加 SELL 记录
+
+        Returns
+        -------
+        float  本次卖出所得现金总额（扣除佣金后）
         """
+        # 将 dict 转为 list[dict] 传给卖出策略（策略接口约定）
         pos_list = [{'ts_code': s, **pos} for s, pos in positions.items()]
         keep_ratios = self.sell_strategy.evaluate(pos_list, today, all_dates)
 
@@ -87,6 +123,7 @@ class BacktestEngine:
             if pos.get('current_price') is None:
                 continue
 
+            # ratio=0.0 时全卖，否则按 (1-ratio) 比例卖出
             sell_shares = pos['shares'] if ratio == 0.0 else int(pos['shares'] * (1 - ratio))
             # print("stock:", stock)
             # print("sell_shares", sell_shares)
@@ -112,29 +149,51 @@ class BacktestEngine:
         self, today: str, invest_cash: float, signals: pd.DataFrame,
         positions: dict, price_index: pd.DataFrame, trade_log: list
     ) -> float:
-        """按前一日信号、以今日收盘价等权买入 top_n 只股票，返回实际花费现金。"""
+        """
+        根据前一日生成的信号，以今日收盘价等权买入 top_n 只股票。
+
+        等权分配：invest_cash 按信号 top_n 均分，不足整手（100股）则跳过。
+        买入后将新持仓写入 positions，记录买入日期供卖出策略计算持仓天数。
+
+        Parameters
+        ----------
+        today        : str           今日日期 YYYYMMDD（作为新持仓的 buy_date）
+        invest_cash  : float         本次可用于建仓的资金
+        signals      : pd.DataFrame  前一日生成的打分表（含 ts_code、score 列，已降序）
+        positions    : dict          当前持仓，原地写入新持仓
+        price_index  : pd.DataFrame  以 ts_code 为索引的今日截面
+        trade_log    : list          交易记录，追加 BUY 记录
+
+        Returns
+        -------
+        float  实际花费的现金总额（含佣金）
+        """
+        # 取分数最高的 top_n 只股票
         top = signals.head(min(self.cfg.top_n, len(signals)))
         n = len(top)
         if n == 0:
             return 0.0
 
+        # 每只股票等权分配的资金
         per_stock = invest_cash / n
         cash_spent = 0.0
         for _, row in top.iterrows():
             stock = row[self.STOCK_COL]
             if stock not in price_index.index:
+                # 今日该股票无行情（停牌等），跳过
                 continue
             buy_price = price_index.loc[stock, self.PRICE_COL]
+            # 按 100 股/手取整，A 股最小交易单位为 1 手（100 股）
             shares = int(per_stock / buy_price / 100) * 100
             if shares <= 0:
                 continue
             cost = shares * buy_price * (1 + self.cfg.commission)
             cash_spent += cost
             positions[stock] = {
-                'buy_date': today,
-                'buy_price': buy_price,
-                'shares': shares,
-                'current_price': buy_price,
+                'buy_date': today,       # 记录成交日期，供卖出策略计算持仓天数
+                'buy_price': buy_price,  # 成交均价，用于计算浮盈浮亏
+                'shares': shares,        # 持仓数量（股）
+                'current_price': buy_price,  # 初始化为买入价，后续每日由 _mark_prices 更新
             }
             trade_log.append((today, 'BUY', stock, shares, buy_price, cost))
 
@@ -146,63 +205,82 @@ class BacktestEngine:
 
     def run(self, start_date: str, end_date: str, capital: float = None) -> tuple:
         """
-        执行回测，返回 (nav_df, trade_log)。
-          nav_df    : DataFrame[date, nav]
-          trade_log : list of (date, 'BUY'|'SELL', ts_code, shares, price, amount)
+        执行全量回测，返回每日净值序列和完整交易记录。
+
+        Parameters
+        ----------
+        start_date : str    回测开始日期 YYYYMMDD
+        end_date   : str    回测结束日期 YYYYMMDD
+        capital    : float  初始资金，None 时使用 config.initial_capital
+
+        Returns
+        -------
+        nav_df    : DataFrame[date, nav]
+            每日净值，date 为 YYYYMMDD 字符串，nav 为当日结束时的总资产
+        trade_log : list of tuple
+            每条记录格式：(date, 'BUY'|'SELL', ts_code, shares, price, amount)
         """
         if capital is None:
             capital = self.cfg.initial_capital
 
         all_dates = self.loader.get_trading_dates()
+        # 截取回测区间内的交易日列表
         trade_dates = all_dates[all_dates.index(start_date): all_dates.index(end_date) + 1]
 
         if self.timing is not None:
+            # 预计算全区间内的择时状态（如均线序列），避免在每日循环内重复读文件
             self.timing.prepare(start_date, end_date)
         self.strategy.reset()
 
-        cash = capital
-        positions: dict = {}
-        daily_nav: list = []
-        trade_log: list = []
-        pending_buy: Optional[tuple] = None  # (signals_df, timing_ratio) from previous day
+        cash = capital                          # 当前账户现金
+        positions: dict = {}                    # {ts_code: {buy_date, buy_price, shares, current_price}}
+        daily_nav: list = []                    # [(date, nav), ...]，最终转为 DataFrame
+        trade_log: list = []                    # 完整成交记录
+        # T 日收盘后生成的信号，在 T+1 日成交
+        # 格式：(signals_df, timing_ratio)，None 表示昨日无有效信号
+        pending_buy: Optional[tuple] = None
 
         for today in trade_dates:
             df_today = self.loader.get_data(today)
             if df_today is None:
+                # 当日无截面数据（节假日、数据缺失），NAV 沿用前一日
                 daily_nav.append((today, daily_nav[-1][1] if daily_nav else cash))
                 continue
 
+            # 以 ts_code 为索引，便于后续按股票代码快速查价格
             price_index = df_today.set_index(self.STOCK_COL)
 
-            # ① 更新持仓市值
+            # ① 用今日收盘价更新所有持仓的 current_price
             self._mark_prices(positions, price_index)
 
-            # ② 记录当日 NAV（交易前估值）
+            # ② 记录今日 NAV（交易前，反映持仓资产的价格变动）
             daily_nav.append((today, cash + self._holdings_value(positions)))
 
-            # ③ 执行卖出（用今日收盘价）
+            # ③ 执行卖出策略（用今日收盘价结算）
             if positions:
                 cash += self._execute_sells(positions, today, all_dates, trade_log)
 
-            # ④ 执行前一日信号的买入（用今日收盘价成交，信号来自昨日收盘后，只有清仓了才执行，假设有剩余仓位，即便能买也不买，省的麻烦）
+            # ④ 执行前一日信号的买入（用今日收盘价成交）
+            # 仅在全部清仓后触发：避免持仓期间反复用旧信号建仓，导致持仓周期混乱
             if not positions:
                 if pending_buy is not None:
                     signals, timing_ratio = pending_buy
-                    vol_scale = self._vol_ratio(daily_nav)
-                    invest = cash * timing_ratio * vol_scale
+                    invest = cash * timing_ratio
                     print("today is ", today)
                     cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log)
+                # 无论本日是否买入，都清空待执行信号，防止下一轮持仓结束后用过期信号建仓
                 pending_buy = None
 
-            # ⑤ 用今日数据训练并生成信号，供明日买入消费
+            # ⑤ 用今日数据训练模型并生成信号，供明日买入消费
             if self.strategy.fit(today):
                 signals = self.strategy.generate_signals(today)
                 if signals is not None and not signals.empty:
+                    # 同时记录今日择时比例，确保信号和仓位判断来自同一时间点
                     t_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
                     if t_ratio > 0:
                         pending_buy = (signals, t_ratio)
 
-            # ⑥ 交易后更新当日 NAV
+            # ⑥ 更新今日 NAV（交易后，含新建仓位的成本）
             daily_nav[-1] = (today, cash + self._holdings_value(positions))
             print("cash is ", cash)
             print("positions is ", positions)
@@ -212,7 +290,7 @@ class BacktestEngine:
             print("prof is ", prof)
             print("今天总共", cash + prof)
 
-        # ---- 回测结束，强制平仓剩余持仓 ----
+        # ---- 回测结束，强制平仓所有剩余持仓（用最后一日收盘价结算）----
         if positions:
             last_date = trade_dates[-1]
             df_last = self.loader.get_data(last_date)
@@ -237,14 +315,30 @@ class BacktestEngine:
     # ------------------------------------------------------------------ #
 
     def report(self, nav_df: pd.DataFrame, capital: float = None) -> None:
-        """打印绩效报告：总收益、年化收益、夏普、最大回撤、日胜率"""
+        """
+        根据每日净值序列打印绩效摘要。
+
+        指标说明：
+            总收益率   = (期末NAV / 初始资金) - 1
+            年化收益率 = 以 252 个交易日为基准的复利年化
+            年化夏普   = (日均收益率 / 日收益率标准差) * sqrt(252)，无风险利率近似为 0
+            最大回撤   = NAV 从历史峰值的最大跌幅
+            日胜率     = 日收益率 > 0 的交易日占比
+
+        Parameters
+        ----------
+        nav_df  : DataFrame[date, nav]  由 run() 返回的净值序列
+        capital : float                 初始资金，None 时使用 config.initial_capital
+        """
         if capital is None:
             capital = self.cfg.initial_capital
         nav = nav_df.copy()
-        nav['ret'] = nav['nav'].pct_change()
+        nav['ret'] = nav['nav'].pct_change()   # 日收益率序列
         std_ret = nav['ret'].std()
+        # 年化夏普：假设无风险利率为 0，252 为年交易日数
         sharpe = (nav['ret'].mean() / std_ret) * np.sqrt(252) if std_ret != 0 else 0.0
         total_return = nav['nav'].iloc[-1] / capital - 1
+        # 逐日计算相对历史峰值的回撤幅度
         nav['drawdown'] = (nav['nav'] - nav['nav'].cummax()) / nav['nav'].cummax()
         ann_return = (nav['nav'].iloc[-1] / capital) ** (252 / len(nav)) - 1
 
