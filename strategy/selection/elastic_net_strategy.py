@@ -20,7 +20,10 @@ class ElasticNetConfig:
 
         # ---- 列名约定 ----
         self.stock_col = 'ts_code'   # 股票代码列
-        self.label_col = 'label'     # 预测目标列（未来 5 日收益率）
+        self.label_col = 'label'     # 预测目标列（未来 N 日收益率）
+        # label 所代表的持有期天数，用于多空收益的非重叠采样和夏普年化
+        # 与 label_col 对应：'label'=5, 'label_10'=10, 'label_25'=25
+        self.label_period: int = 5
 
         # ---- 参与建模的因子列 ----
         self.factor_cols = [
@@ -310,19 +313,26 @@ class ElasticNetStrategy(BaseStrategy):
         print("===== Rank IC 统计 =====")
         print(f"IC 均值: {ic_df['ic'].mean():.4f}")
         print(f"IC 标准差: {ic_df['ic'].std():.4f}")
-        # IR（信息比率）= IC均值 / IC标准差，衡量信号稳定性
         print(f"IR: {ic_df['ic'].mean() / ic_df['ic'].std():.4f}")
         print(f"IC>0 比例: {(ic_df['ic'] > 0).mean():.2%}")
-        print("\n===== 多空收益统计 =====")
-        print(ls_df.describe())
-        cum_spread = (1 + ls_df['spread']).prod() - 1
+
+        # 多空收益统计：label 是 N 日收益，相邻行高度重叠（重叠 N-1 天）
+        # 直接对全量 ls_df 求累计/夏普会产生约 N 倍的虚高
+        # 修复：用非重叠采样（每 label_period 行取一次），再以 N 日为基准年化
+        n = self.cfg.label_period
+        ls_nonoverlap = ls_df.iloc[::n]
+        ann_obs = 252 / n                                  # 一年内独立观测次数
+        cum_spread = (1 + ls_nonoverlap['spread']).prod() - 1
+        sp = ls_nonoverlap['spread']
+        sharpe = (sp.mean() / sp.std()) * np.sqrt(ann_obs) if sp.std() != 0 else 0.0
+
+        print(f"\n===== 多空收益统计（非重叠采样，持有期={n}d）=====")
+        print(ls_nonoverlap.describe())
         print(f"多空累计收益: {cum_spread:.4%}")
-        # 年化夏普：以252个交易日为基准
-        sharpe = (ls_df['spread'].mean() / ls_df['spread'].std()) * np.sqrt(252)
-        print(f"年化夏普: {sharpe:.4f}")
+        print(f"年化夏普:     {sharpe:.4f}")
         print("\n===== 因子权重均值 =====")
         print(weights_df.mean().sort_values(ascending=False))
 
         result = {'ic_df': ic_df, 'ls_df': ls_df, 'weights_df': weights_df}
-        self.report_dump(result)
+        self.report_dump(result, label_period=n)
         return result

@@ -75,21 +75,24 @@ class BaseStrategy(ABC):
         """
         raise NotImplementedError
 
-    def report_dump(self, result: dict, output_dir: str = None) -> str:
+    def report_dump(self, result: dict, output_dir: str = None, label_period: int = 1) -> str:
         """
         将 simple_backtest() 的返回结果持久化到本地目录。
 
         默认在 strategy/backtest_results/<start>_<end>_<timestamp>/ 下写入：
           ic_series.csv          — 每日 Rank IC
-          long_short_returns.csv — 多空分层日收益
+          long_short_returns.csv — 多空分层日收益（全量，含重叠）
           factor_weights.csv     — 每日因子权重（列 = 因子名）
-          summary.txt            — 控制台打印的统计摘要
+          summary.txt            — 统计摘要（多空收益采用非重叠采样）
 
         Parameters
         ----------
-        result     : dict  simple_backtest() 返回值，期望包含
-                           ic_df / ls_df / weights_df 三个 DataFrame
-        output_dir : str   指定输出目录；None 时自动生成带时间戳的子目录
+        result       : dict  simple_backtest() 返回值，期望包含
+                             ic_df / ls_df / weights_df 三个 DataFrame
+        output_dir   : str   指定输出目录；None 时自动生成带时间戳的子目录
+        label_period : int   label 所代表的持有期天数（默认 1）；
+                             用于非重叠采样和年化系数修正，避免重叠 label
+                             导致累计收益和夏普虚高
 
         Returns
         -------
@@ -133,13 +136,16 @@ class BaseStrategy(ABC):
 
         ls_df = result.get('ls_df')
         if ls_df is not None and not ls_df.empty and 'spread' in ls_df.columns:
-            cum = (1 + ls_df['spread']).prod() - 1
-            sp  = ls_df['spread']
-            sharpe = (sp.mean() / sp.std()) * (252 ** 0.5) if sp.std() != 0 else 0.0
+            # 非重叠采样：每 label_period 行取一次，消除 N 日 label 的重叠效应
+            ls_nonoverlap = ls_df.iloc[::label_period]
+            ann_obs = 252 / label_period
+            sp = ls_nonoverlap['spread']
+            cum = (1 + sp).prod() - 1
+            sharpe = (sp.mean() / sp.std()) * (ann_obs ** 0.5) if sp.std() != 0 else 0.0
             lines += [
                 '',
-                '===== 多空收益统计 =====',
-                ls_df.describe().to_string(),
+                f'===== 多空收益统计（非重叠采样，持有期={label_period}d）=====',
+                ls_nonoverlap.describe().to_string(),
                 f'多空累计收益: {cum:.4%}',
                 f'年化夏普:     {sharpe:.4f}',
             ]
