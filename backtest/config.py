@@ -24,3 +24,8 @@ class BacktestConfig:
         # 个股止盈阈值：当持仓浮盈达到此比例时触发清仓，如 0.15 表示 15% 止盈
         # 需在自定义 SellStrategy 中读取并使用，引擎本身不处理
         self.take_profit: float | None = None
+
+        # ---- 结果输出 ----
+        # 回测结果保存目录；None = 自动生成 backtest/results/<start>_<end>_<timestamp>/
+        # 设为空字符串 "" 可禁用文件输出
+        self.result_dir: str | None = None

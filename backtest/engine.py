@@ -1,5 +1,7 @@
+import os
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 from strategy.selection.base_strategy import BaseStrategy
 from strategy.sell.base_sell_strategy import BaseSellStrategy
@@ -147,7 +149,8 @@ class BacktestEngine:
 
     def _execute_buys(
         self, today: str, invest_cash: float, signals: pd.DataFrame,
-        positions: dict, price_index: pd.DataFrame, trade_log: list
+        positions: dict, price_index: pd.DataFrame, trade_log: list,
+        picks_log: list
     ) -> float:
         """
         根据前一日生成的信号，以今日收盘价等权买入 top_n 只股票。
@@ -163,6 +166,7 @@ class BacktestEngine:
         positions    : dict          当前持仓，原地写入新持仓
         price_index  : pd.DataFrame  以 ts_code 为索引的今日截面
         trade_log    : list          交易记录，追加 BUY 记录
+        picks_log    : list          选股记录，追加 (date, ts_code, score, buy_price, shares)
 
         Returns
         -------
@@ -179,6 +183,7 @@ class BacktestEngine:
         cash_spent = 0.0
         for _, row in top.iterrows():
             stock = row[self.STOCK_COL]
+            score = row.get('score', float('nan'))
             if stock not in price_index.index:
                 # 今日该股票无行情（停牌等），跳过
                 continue
@@ -196,6 +201,7 @@ class BacktestEngine:
                 'current_price': buy_price,  # 初始化为买入价，后续每日由 _mark_prices 更新
             }
             trade_log.append((today, 'BUY', stock, shares, buy_price, cost))
+            picks_log.append((today, stock, score, buy_price, shares))
 
         return cash_spent
 
@@ -236,6 +242,7 @@ class BacktestEngine:
         positions: dict = {}                    # {ts_code: {buy_date, buy_price, shares, current_price}}
         daily_nav: list = []                    # [(date, nav), ...]，最终转为 DataFrame
         trade_log: list = []                    # 完整成交记录
+        picks_log: list = []                    # 选股打分记录：(date, ts_code, score, buy_price, shares)
         # T 日收盘后生成的信号，在 T+1 日成交
         # 格式：(signals_df, timing_ratio)，None 表示昨日无有效信号
         pending_buy: Optional[tuple] = None
@@ -267,7 +274,7 @@ class BacktestEngine:
                     signals, timing_ratio = pending_buy
                     invest = cash * timing_ratio
                     print("today is ", today)
-                    cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log)
+                    cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log, picks_log)
                 # 无论本日是否买入，都清空待执行信号，防止下一轮持仓结束后用过期信号建仓
                 pending_buy = None
 
@@ -308,7 +315,48 @@ class BacktestEngine:
                     daily_nav[-1] = (last_date, cash)
 
         nav_df = pd.DataFrame(daily_nav, columns=['date', 'nav'])
+        self._dump_results(start_date, end_date, nav_df, trade_log, picks_log)
         return nav_df, trade_log
+
+    def _dump_results(
+        self, start_date: str, end_date: str,
+        nav_df: pd.DataFrame, trade_log: list, picks_log: list
+    ) -> None:
+        """
+        将回测结果持久化到本地目录。
+
+        输出目录优先使用 config.result_dir；若为 None 则自动生成带时间戳的子目录；
+        若为空字符串 "" 则跳过所有文件输出。
+
+        生成文件：
+          nav.csv          — 每日净值 (date, nav)
+          trade_log.csv    — 完整成交记录 (date, side, ts_code, shares, price, amount)
+          daily_picks.csv  — 买入时的每股打分 (date, ts_code, score, buy_price, shares)
+        """
+        result_dir = self.cfg.result_dir
+        if result_dir == '':
+            return
+
+        if result_dir is None:
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            result_dir = os.path.join('backtest', 'results',
+                                      f'{start_date}_{end_date}_{ts}')
+
+        os.makedirs(result_dir, exist_ok=True)
+
+        nav_df.to_csv(os.path.join(result_dir, 'nav.csv'), index=False)
+
+        pd.DataFrame(
+            trade_log,
+            columns=['date', 'side', 'ts_code', 'shares', 'price', 'amount']
+        ).to_csv(os.path.join(result_dir, 'trade_log.csv'), index=False)
+
+        pd.DataFrame(
+            picks_log,
+            columns=['date', 'ts_code', 'score', 'buy_price', 'shares']
+        ).to_csv(os.path.join(result_dir, 'daily_picks.csv'), index=False)
+
+        print(f'回测结果已保存 → {result_dir}')
 
     # ------------------------------------------------------------------ #
     #  绩效报告                                                             #

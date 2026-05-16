@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
+import os
 import pandas as pd
+from datetime import datetime
 from typing import Optional
 
 
@@ -72,3 +74,86 @@ class BaseStrategy(ABC):
         dict  评估结果，具体结构由子类定义
         """
         raise NotImplementedError
+
+    def report_dump(self, result: dict, output_dir: str = None) -> str:
+        """
+        将 simple_backtest() 的返回结果持久化到本地目录。
+
+        默认在 strategy/backtest_results/<start>_<end>_<timestamp>/ 下写入：
+          ic_series.csv          — 每日 Rank IC
+          long_short_returns.csv — 多空分层日收益
+          factor_weights.csv     — 每日因子权重（列 = 因子名）
+          summary.txt            — 控制台打印的统计摘要
+
+        Parameters
+        ----------
+        result     : dict  simple_backtest() 返回值，期望包含
+                           ic_df / ls_df / weights_df 三个 DataFrame
+        output_dir : str   指定输出目录；None 时自动生成带时间戳的子目录
+
+        Returns
+        -------
+        str  实际输出目录路径
+        """
+        if output_dir is None:
+            ic_df = result.get('ic_df')
+            if ic_df is not None and not ic_df.empty:
+                start = str(ic_df.index[0])
+                end   = str(ic_df.index[-1])
+            else:
+                start = end = 'unknown'
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_dir = os.path.join('strategy', 'backtest_results',
+                                      f'{start}_{end}_{ts}')
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        if 'ic_df' in result and result['ic_df'] is not None:
+            result['ic_df'].to_csv(os.path.join(output_dir, 'ic_series.csv'))
+
+        if 'ls_df' in result and result['ls_df'] is not None:
+            result['ls_df'].to_csv(os.path.join(output_dir, 'long_short_returns.csv'))
+
+        if 'weights_df' in result and result['weights_df'] is not None:
+            result['weights_df'].to_csv(os.path.join(output_dir, 'factor_weights.csv'))
+
+        # 将统计摘要写为文本文件
+        lines = []
+        ic_df = result.get('ic_df')
+        if ic_df is not None and not ic_df.empty and 'ic' in ic_df.columns:
+            ic = ic_df['ic']
+            std_ic = ic.std()
+            lines += [
+                '===== Rank IC 统计 =====',
+                f'IC 均值:    {ic.mean():.4f}',
+                f'IC 标准差:  {std_ic:.4f}',
+                f'IR:         {ic.mean() / std_ic:.4f}' if std_ic != 0 else 'IR:  N/A',
+                f'IC>0 比例:  {(ic > 0).mean():.2%}',
+            ]
+
+        ls_df = result.get('ls_df')
+        if ls_df is not None and not ls_df.empty and 'spread' in ls_df.columns:
+            cum = (1 + ls_df['spread']).prod() - 1
+            sp  = ls_df['spread']
+            sharpe = (sp.mean() / sp.std()) * (252 ** 0.5) if sp.std() != 0 else 0.0
+            lines += [
+                '',
+                '===== 多空收益统计 =====',
+                ls_df.describe().to_string(),
+                f'多空累计收益: {cum:.4%}',
+                f'年化夏普:     {sharpe:.4f}',
+            ]
+
+        weights_df = result.get('weights_df')
+        if weights_df is not None and not weights_df.empty:
+            lines += [
+                '',
+                '===== 因子权重均值 =====',
+                weights_df.mean().sort_values(ascending=False).to_string(),
+            ]
+
+        with open(os.path.join(output_dir, 'summary.txt'), 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+
+        print(f'结果已保存 → {output_dir}')
+        return output_dir

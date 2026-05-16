@@ -323,4 +323,6 @@ class ElasticNetStrategy(BaseStrategy):
         print("\n===== 因子权重均值 =====")
         print(weights_df.mean().sort_values(ascending=False))
 
-        return {'ic_df': ic_df, 'ls_df': ls_df, 'weights_df': weights_df}
+        result = {'ic_df': ic_df, 'ls_df': ls_df, 'weights_df': weights_df}
+        self.report_dump(result)
+        return result
