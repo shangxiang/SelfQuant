@@ -56,8 +56,8 @@ class BacktestEngine:
         self.loader = data_loader
         self.cfg = config
         self.timing = timing
-        # 未指定卖出策略时，默认持有5个交易日后全部清仓
-        self.sell_strategy = sell_strategy if sell_strategy is not None else HoldNDaysSellStrategy(5)
+        # 未指定卖出策略时，默认按 config.holding_period 持有后全部清仓
+        self.sell_strategy = sell_strategy if sell_strategy is not None else HoldNDaysSellStrategy(config.holding_period)
 
     # ------------------------------------------------------------------ #
     #  内部工具                                                             #
@@ -243,11 +243,13 @@ class BacktestEngine:
         daily_nav: list = []                    # [(date, nav), ...]，最终转为 DataFrame
         trade_log: list = []                    # 完整成交记录
         picks_log: list = []                    # 选股打分记录：(date, ts_code, score, buy_price, shares)
-        # T 日收盘后生成的信号，在 T+1 日成交
-        # 格式：(signals_df, timing_ratio)，None 表示昨日无有效信号
-        pending_buy: Optional[tuple] = None
+        pending_buy: Optional[tuple] = None     # T 日生成的信号，在 T+1 日成交
 
-        for today in trade_dates:
+        # 下一次需要生成信号的 trade_dates 下标
+        # 空仓期间每天都要生成（随时准备建仓）；持仓期间只在卖出前一天生成一次
+        next_signal_idx: int = 0
+
+        for i, today in enumerate(trade_dates):
             df_today = self.loader.get_data(today)
             if df_today is None:
                 # 当日无截面数据（节假日、数据缺失），NAV 沿用前一日
@@ -273,29 +275,26 @@ class BacktestEngine:
                 if pending_buy is not None:
                     signals, timing_ratio = pending_buy
                     invest = cash * timing_ratio
-                    print("today is ", today)
                     cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log, picks_log)
+                    # 建仓成功后：下一次信号在 holding_period-1 天后生成（卖出前一天）
+                    if positions:
+                        next_signal_idx = i + self.cfg.holding_period - 1
                 # 无论本日是否买入，都清空待执行信号，防止下一轮持仓结束后用过期信号建仓
                 pending_buy = None
 
-            # ⑤ 用今日数据训练模型并生成信号，供明日买入消费
-            if self.strategy.fit(today):
-                signals = self.strategy.generate_signals(today)
-                if signals is not None and not signals.empty:
-                    # 同时记录今日择时比例，确保信号和仓位判断来自同一时间点
-                    t_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
-                    if t_ratio > 0:
-                        pending_buy = (signals, t_ratio)
+            # ⑤ 生成明日信号（仅在必要时执行，减少无效计算）
+            # 触发条件：空仓中（随时准备入场）或已到下次预定信号日
+            if not positions or i >= next_signal_idx:
+                if self.strategy.fit(today):
+                    signals = self.strategy.generate_signals(today)
+                    if signals is not None and not signals.empty:
+                        # 同时记录今日择时比例，确保信号和仓位判断来自同一时间点
+                        t_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
+                        if t_ratio > 0:
+                            pending_buy = (signals, t_ratio)
 
             # ⑥ 更新今日 NAV（交易后，含新建仓位的成本）
             daily_nav[-1] = (today, cash + self._holdings_value(positions))
-            print("cash is ", cash)
-            print("positions is ", positions)
-            prof = 0
-            for stock in positions:
-                prof += positions[stock]['shares'] * positions[stock]['current_price']
-            print("prof is ", prof)
-            print("今天总共", cash + prof)
 
         # ---- 回测结束，强制平仓所有剩余持仓（用最后一日收盘价结算）----
         if positions:
