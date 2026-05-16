@@ -86,6 +86,8 @@ def standardize():
     # 需要先行业+市值中性化的因子
     # 注意：size_factor / smb_squared 本身就是市值变换，不在此列表
     should_neutralize = [
+        # 标签类
+        'label', 'label_10', 'label_25',
         # 估值类（行业间 PB/PE 差异极大）
         'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm',
         # 规模类（绝对值受市值影响）
@@ -132,6 +134,12 @@ def standardize():
         df = pd.read_csv(file)
 
         # 合并行业信息（用于中性化）
+        if "industry" in df.columns:
+            df.drop("industry", axis=1, inplace=True)
+        if "industry_x" in df.columns:
+            df.drop("industry_x", axis=1, inplace=True)
+        if "industry_y" in df.columns:
+            df.drop("industry_y", axis=1, inplace=True)
         df = df.merge(stock_info_df[["ts_code", "industry"]], on='ts_code', how='left')
 
         # 步骤 1：缩尾
@@ -143,6 +151,11 @@ def standardize():
         neutralized_cols = {}
         for fac in should_neutralize:
             if fac not in df.columns:
+                continue
+            if fac + "_neutral" in df.columns:
+                continue
+            if df[fac].isna().all():
+                neutralized_cols[fac + '_neutral'] = 0
                 continue
             neutralized_cols[fac + '_neutral'] = neutralize_one_day(
                 df, factor_name=fac, mv_col='total_mv', ind_col='industry'
@@ -185,5 +198,5 @@ def section_duplicates():
 
 if __name__ == '__main__':
     # series_to_section()
-    # standardize()
+    #standardize()
     section_duplicates()

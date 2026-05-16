@@ -2,3 +2,5 @@ data/
 .venv/
 .idea/
 *__pycache__/
+strategy/backtest_results/
+backtest/results/

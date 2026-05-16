@@ -279,6 +279,7 @@ class BacktestEngine:
             # 仅在全部清仓后触发：避免持仓期间反复用旧信号建仓，导致持仓周期混乱
             if not positions:
                 if pending_buy is not None:
+                    print("今天是", today)
                     signals, timing_ratio = pending_buy
                     invest = cash * timing_ratio
                     cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log, picks_log)
@@ -306,6 +307,7 @@ class BacktestEngine:
 
             # ⑥ 更新今日 NAV（交易后，含新建仓位的成本）
             daily_nav[-1] = (today, cash + self._holdings_value(positions))
+            print(daily_nav[-1])
 
         # ---- 回测结束，强制平仓所有剩余持仓（用最后一日收盘价结算）----
         if positions:
