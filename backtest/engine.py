@@ -178,16 +178,22 @@ class BacktestEngine:
         if n == 0:
             return 0.0
 
+        # 买入当天 pct_chg 列名（Tushare 标准字段）
+        pct_col = next((c for c in ('pct_chg', 'pct_change') if c in price_index.columns), None)
+
         # 每只股票等权分配的资金
         per_stock = invest_cash / n
         cash_spent = 0.0
         for _, row in top.iterrows():
             stock = row[self.STOCK_COL]
-            score = row.get('score', float('nan'))
+            score   = row.get('score', float('nan'))
+            pick_mv = row.get('_pick_mv', float('nan'))
             if stock not in price_index.index:
                 # 今日该股票无行情（停牌等），跳过
                 continue
             buy_price = price_index.loc[stock, self.PRICE_COL]
+            # 买入当天涨幅（T+1 日，即实际成交日）
+            pct_chg = price_index.loc[stock, pct_col] if pct_col else float('nan')
             # 按 100 股/手取整，A 股最小交易单位为 1 手（100 股）
             shares = int(per_stock / buy_price / 100) * 100
             if shares <= 0:
@@ -195,13 +201,13 @@ class BacktestEngine:
             cost = shares * buy_price * (1 + self.cfg.commission)
             cash_spent += cost
             positions[stock] = {
-                'buy_date': today,       # 记录成交日期，供卖出策略计算持仓天数
-                'buy_price': buy_price,  # 成交均价，用于计算浮盈浮亏
-                'shares': shares,        # 持仓数量（股）
-                'current_price': buy_price,  # 初始化为买入价，后续每日由 _mark_prices 更新
+                'buy_date': today,
+                'buy_price': buy_price,
+                'shares': shares,
+                'current_price': buy_price,
             }
             trade_log.append((today, 'BUY', stock, shares, buy_price, cost))
-            picks_log.append((today, stock, score, buy_price, shares))
+            picks_log.append((today, stock, score, buy_price, shares, pick_mv, pct_chg))
 
         return cash_spent
 
@@ -288,6 +294,11 @@ class BacktestEngine:
                 if self.strategy.fit(today):
                     signals = self.strategy.generate_signals(today)
                     if signals is not None and not signals.empty:
+                        # 将 pick 日市值附到 signals 上，供 _execute_buys 写入 picks_log
+                        if 'total_mv' in df_today.columns:
+                            mv_map = price_index['total_mv']
+                            signals = signals.copy()
+                            signals['_pick_mv'] = signals[self.STOCK_COL].map(mv_map)
                         # 同时记录今日择时比例，确保信号和仓位判断来自同一时间点
                         t_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
                         if t_ratio > 0:
@@ -352,7 +363,7 @@ class BacktestEngine:
 
         pd.DataFrame(
             picks_log,
-            columns=['date', 'ts_code', 'score', 'buy_price', 'shares']
+            columns=['date', 'ts_code', 'score', 'buy_price', 'shares', 'total_mv', 'pct_change']
         ).to_csv(os.path.join(result_dir, 'daily_picks.csv'), index=False)
 
         print(f'回测结果已保存 → {result_dir}')
