@@ -97,3 +97,87 @@ class MATiming(BaseTimingStrategy):
         """
         # return self._map.get(date_str, 1.0)
         return 1.0
+
+
+class StyleConvergenceTiming(BaseTimingStrategy):
+    """
+    大小盘风格趋同择时。
+
+    当小微盘（932000.CSI）与大中盘（000510.CSI）同时满足以下条件时，
+    判定市场处于"系统性下行"状态，将建仓比例降为 avoid_ratio（默认空仓）：
+
+        条件1：滚动 roll_window 日相关系数 > corr_threshold（两者高度趋同）
+        条件2：小盘指数过去 roll_window 日累计收益 < 0
+        条件3：大盘指数过去 roll_window 日累计收益 < 0
+
+    逻辑含义：
+        大小盘趋同说明风格轮动失效，同步下行说明整体风险偏好在收缩。
+        此时选股 alpha 很难抵御 beta 下行，持股收益往往偏差。
+
+    信号使用 T 日收盘数据，引擎在 T 日生成信号、T+1 日执行买入，不存在未来函数。
+    """
+
+    def __init__(
+        self,
+        small_file: str = 'data/raw/index_daily/932000.CSI.csv',
+        large_file: str = 'data/raw/index_daily/000510.CSI.csv',
+        roll_window: int = 5,
+        corr_threshold: float = 0.75,
+        avoid_ratio: float = 0.0,
+    ):
+        """
+        Parameters
+        ----------
+        small_file       : 小微盘指数日线 CSV（需含 trade_date、pct_chg 列）
+        large_file       : 大中盘指数日线 CSV
+        roll_window      : 滚动窗口天数，同时用于相关性和累计收益计算
+        corr_threshold   : 相关系数触发阈值，超过则认为趋同
+        avoid_ratio      : 信号0时的建仓比例，0.0=空仓，0.5=半仓
+        """
+        self.small_file     = small_file
+        self.large_file     = large_file
+        self.roll_window    = roll_window
+        self.corr_threshold = corr_threshold
+        self.avoid_ratio    = avoid_ratio
+        self._map: dict[str, float] = {}
+
+    def prepare(self, start_date: str, end_date: str) -> None:
+        """
+        读取两只指数日线，预计算全区间信号并存入 self._map。
+        由于需要 roll_window 天的历史才能输出第一个信号，
+        实际读取范围从文件最早日期起，不受 start_date 限制。
+        """
+        def _load(path: str) -> pd.Series:
+            df = pd.read_csv(path, index_col=0)
+            df['trade_date'] = pd.to_datetime(
+                df['trade_date'].astype(str), format='%Y%m%d'
+            )
+            return (
+                df.sort_values('trade_date')
+                  .set_index('trade_date')['pct_chg'] / 100
+            )
+
+        small = _load(self.small_file)
+        large = _load(self.large_file)
+        df = pd.concat([small.rename('small'), large.rename('large')],
+                       axis=1).dropna()
+
+        df['roll_corr'] = df['small'].rolling(self.roll_window).corr(df['large'])
+        df['small_cum'] = df['small'].rolling(self.roll_window).sum()
+        df['large_cum'] = df['large'].rolling(self.roll_window).sum()
+
+        avoid = (
+            (df['roll_corr'] > self.corr_threshold)
+            & (df['small_cum'] < 0)
+            & (df['large_cum'] < 0)
+        )
+        ratio = avoid.map({True: self.avoid_ratio, False: 1.0}).fillna(1.0)
+
+        self._map = dict(zip(df.index.strftime('%Y%m%d'), ratio))
+
+    def get_position_ratio(self, date_str: str) -> float:
+        """
+        返回当日建仓比例。
+        数据不足 roll_window 天时（回测初期）默认满仓，不强制跳过建仓。
+        """
+        return self._map.get(date_str, 1.0)

@@ -7,7 +7,7 @@ from strategy.selection.elastic_net_strategy import ElasticNetConfig, ElasticNet
 from strategy.sell.hold_n_days import HoldNDaysSellStrategy
 from backtest.config import BacktestConfig
 from backtest.engine import BacktestEngine
-from backtest.timing import MATiming
+from backtest.timing import MATiming, StyleConvergenceTiming
 
 
 if __name__ == '__main__':
@@ -19,12 +19,19 @@ if __name__ == '__main__':
     strategy = ElasticNetStrategy(s_cfg, loader)
 
     # # 纯因子评估（Rank IC + 分层收益）
-    # strategy.simple_backtest('20230101', '20260331')
+    # strategy.simple_backtest('20250101', '20260507')
 
-    # 模拟交易回测
-    timing = MATiming(
-        index_file='data/raw/index_daily/000905.SH.csv',
-        ma_period=30,
+    # 均线择时（原方案）
+    # timing = MATiming(
+    #     index_file='data/raw/index_daily/399005.SZ.csv',
+    #     ma_period=60,
+    # )
+
+    # 大小盘风格趋同择时：高相关 + 双双下行时空仓
+    timing = StyleConvergenceTiming(
+        roll_window=5,        # 滚动窗口（交易日）
+        corr_threshold=0.75,  # 相关系数触发阈值
+        avoid_ratio=0.0,      # 触发时建仓比例（0.0=空仓，0.5=半仓）
     )
     sell = HoldNDaysSellStrategy(n=5)
 
