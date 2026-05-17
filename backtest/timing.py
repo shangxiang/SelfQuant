@@ -197,35 +197,35 @@ class StyleConvergenceTiming(BaseTimingStrategy):
 
 class LastBatchTiming(BaseTimingStrategy):
     """
-    上期收益择时：根据上一个持仓周期的实际盈亏动态调整本期仓位。
+    上期收益择时：根据连续亏损次数动态递减仓位，盈利后立即恢复满仓。
 
     规则：
-        上期盈利（profit >= 0）→ 本期满仓（1.0）
-        上期亏损（profit <  0）→ 本期减半（half_ratio，默认 0.5）
+        上期盈利（profit >= 0）→ 仓位重置为 1.0（满仓）
+        上期亏损（profit <  0）→ 当前仓位 × half_ratio（每亏一次打一折）
         首次入场（无历史）     → 满仓
 
-    原理：连续亏损往往意味着当前市场状态对策略不友好，
-    适度降仓可以减少单次大亏的影响，同时保留参与反弹的机会。
+    示例（half_ratio=0.5）：
+        第1次亏损 → 0.5 仓
+        第2次连亏 → 0.25 仓
+        第3次连亏 → 0.125 仓
+        中间任意一次盈利 → 重置回 1.0 仓
 
-    实现说明：
-        引擎在每批持仓全部卖出后调用 on_batch_sold(profit)，
-        本策略据此更新内部状态；仓位比例在实际买入时（而非信号生成时）查询，
-        确保使用的是最新一期的已实现收益。
+    Parameters
+    ----------
+    half_ratio : float  每次亏损后仓位的乘数，默认 0.5（减半）
+    min_ratio  : float  仓位下限，防止连续亏损后仓位趋近于零，默认 0.0（不限制）
     """
 
-    def __init__(self, half_ratio: float = 0.5):
-        """
-        Parameters
-        ----------
-        half_ratio : float  上期亏损时的建仓比例，默认 0.5（半仓）
-        """
-        self.half_ratio = half_ratio
-        self._last_profit: Optional[float] = None
+    def __init__(self, half_ratio: float = 0.5, min_ratio: float = 0.0):
+        self.half_ratio  = half_ratio
+        self.min_ratio   = min_ratio
+        self._ratio: float = 1.0   # 当前仓位，随每期结果动态更新
 
     def on_batch_sold(self, profit: float) -> None:
-        self._last_profit = profit
+        if profit >= 0:
+            self._ratio = 1.0
+        else:
+            self._ratio = max(self._ratio * self.half_ratio, self.min_ratio)
 
     def get_position_ratio(self, date_str: str) -> float:
-        if self._last_profit is None:
-            return 1.0
-        return self.half_ratio if self._last_profit < 0 else 1.0
+        return self._ratio
