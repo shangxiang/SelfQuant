@@ -7,7 +7,7 @@ from strategy.selection.elastic_net_strategy import ElasticNetConfig, ElasticNet
 from strategy.sell.hold_n_days import HoldNDaysSellStrategy
 from backtest.config import BacktestConfig
 from backtest.engine import BacktestEngine
-from backtest.timing import MATiming, StyleConvergenceTiming
+from backtest.timing import MATiming, StyleConvergenceTiming, LastBatchTiming
 
 
 if __name__ == '__main__':

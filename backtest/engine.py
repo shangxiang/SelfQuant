@@ -259,10 +259,12 @@ class BacktestEngine:
         trade_log: list = []                    # 完整成交记录
         picks_log: list = []                    # 选股打分记录：(date, ts_code, score, buy_price, shares)
         batch_log: list = []                    # 每批买入记录：(buy_date, alias)
+        last_batch_cost: float = 0.0            # 上批买入总成本，用于计算已实现收益率
         pending_buy: Optional[tuple] = None     # T 日生成的信号，在 T+1 日成交
 
         # 下一次需要生成信号的 trade_dates 下标
-        # 空仓期间每天都要生成（随时准备建仓）；持仓期间只在卖出前一天生成一次
+        # 初始为 0（从第一天起尝试建仓）；买入成功后推进到下一个周期节点
+        # 提前清仓后不立即重入，等到预定的 next_signal_idx 才重新生成信号
         next_signal_idx: int = 0
 
         for i, today in enumerate(trade_dates):
@@ -290,26 +292,32 @@ class BacktestEngine:
                     print('今日收盘价卖出，today = ', today)
                     if not positions and i < next_signal_idx:
                         print('提前清仓了')
+                    # 全部清仓后通知择时策略本批已实现收益率
+                    if not positions and self.timing is not None and last_batch_cost > 0:
+                        batch_profit = (cash_from_sells - last_batch_cost) / last_batch_cost
+                        self.timing.on_batch_sold(batch_profit)
 
             # ④ 执行前一日信号的买入（用今日收盘价成交）
             # 仅在全部清仓后触发：避免持仓期间反复用旧信号建仓，导致持仓周期混乱
             if not positions:
                 if pending_buy is not None:
                     print("今天是", today)
-                    signals, timing_ratio = pending_buy
-                    invest = cash * timing_ratio
-                    cash_spent, alias = self._execute_buys(today, invest, signals, positions, price_index, trade_log, picks_log)
-                    cash -= cash_spent
-                    batch_log.append((today, alias))
-                    # 建仓成功后：下一次信号在 holding_period-1 天后生成（卖出前一天）
-                    if positions:
-                        next_signal_idx = i + self.cfg.holding_period - 1
+                    # 仓位比例在买入时查询（而非信号生成时），确保能用最新的择时判断
+                    t_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
+                    if t_ratio > 0:
+                        invest = cash * t_ratio
+                        cash_spent, alias = self._execute_buys(today, invest, pending_buy, positions, price_index, trade_log, picks_log)
+                        cash -= cash_spent
+                        last_batch_cost = cash_spent
+                        batch_log.append((today, alias))
+                        if positions:
+                            next_signal_idx = i + self.cfg.holding_period - 1
                 # 无论本日是否买入，都清空待执行信号，防止下一轮持仓结束后用过期信号建仓
                 pending_buy = None
 
-            # ⑤ 生成明日信号（仅在必要时执行，减少无效计算）
-            # 触发条件：空仓中（随时准备入场）或已到下次预定信号日
-            if not positions or i >= next_signal_idx:
+            # ⑤ 生成明日信号（固定周期触发）
+            # 只在预定的信号日运行，提前清仓后也等到下一个周期节点再入场
+            if i >= next_signal_idx:
                 if self.strategy.fit(today):
                     signals = self.strategy.generate_signals(today)
                     if signals is not None and not signals.empty:
@@ -318,10 +326,8 @@ class BacktestEngine:
                             mv_map = price_index['total_mv']
                             signals = signals.copy()
                             signals['_pick_mv'] = signals[self.STOCK_COL].map(mv_map)
-                        # 同时记录今日择时比例，确保信号和仓位判断来自同一时间点
-                        t_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
-                        if t_ratio > 0:
-                            pending_buy = (signals, t_ratio)
+                        # 仓位比例延迟到买入时查询，此处只存信号
+                        pending_buy = signals
 
             # ⑥ 更新今日 NAV（交易后，含新建仓位的成本）
             daily_nav[-1] = (today, cash + self._holdings_value(positions))

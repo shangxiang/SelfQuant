@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 import pandas as pd
 
 
@@ -40,6 +41,17 @@ class BaseTimingStrategy(ABC):
         Returns
         -------
         float  0.0 = 不建仓（空仓），1.0 = 全仓，0.6 = 用 60% 可用资金建仓
+        """
+        pass
+
+    def on_batch_sold(self, profit: float) -> None:
+        """
+        每批持仓全部卖出后由引擎回调，传入本批已实现收益率。
+
+        profit = (卖出总收益 - 买入总成本) / 买入总成本
+
+        子类可覆盖此方法以更新内部状态（如记录上期亏损）。
+        默认空实现，对不需要历史信息的择时策略无影响。
         """
         pass
 
@@ -181,3 +193,39 @@ class StyleConvergenceTiming(BaseTimingStrategy):
         数据不足 roll_window 天时（回测初期）默认满仓，不强制跳过建仓。
         """
         return self._map.get(date_str, 1.0)
+
+
+class LastBatchTiming(BaseTimingStrategy):
+    """
+    上期收益择时：根据上一个持仓周期的实际盈亏动态调整本期仓位。
+
+    规则：
+        上期盈利（profit >= 0）→ 本期满仓（1.0）
+        上期亏损（profit <  0）→ 本期减半（half_ratio，默认 0.5）
+        首次入场（无历史）     → 满仓
+
+    原理：连续亏损往往意味着当前市场状态对策略不友好，
+    适度降仓可以减少单次大亏的影响，同时保留参与反弹的机会。
+
+    实现说明：
+        引擎在每批持仓全部卖出后调用 on_batch_sold(profit)，
+        本策略据此更新内部状态；仓位比例在实际买入时（而非信号生成时）查询，
+        确保使用的是最新一期的已实现收益。
+    """
+
+    def __init__(self, half_ratio: float = 0.5):
+        """
+        Parameters
+        ----------
+        half_ratio : float  上期亏损时的建仓比例，默认 0.5（半仓）
+        """
+        self.half_ratio = half_ratio
+        self._last_profit: Optional[float] = None
+
+    def on_batch_sold(self, profit: float) -> None:
+        self._last_profit = profit
+
+    def get_position_ratio(self, date_str: str) -> float:
+        if self._last_profit is None:
+            return 1.0
+        return self.half_ratio if self._last_profit < 0 else 1.0
