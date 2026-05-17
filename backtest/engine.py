@@ -152,7 +152,7 @@ class BacktestEngine:
         self, today: str, invest_cash: float, signals: pd.DataFrame,
         positions: dict, price_index: pd.DataFrame, trade_log: list,
         picks_log: list
-    ) -> float:
+    ) -> tuple:
         """
         根据前一日生成的信号，以今日收盘价等权买入 top_n 只股票。
 
@@ -171,20 +171,21 @@ class BacktestEngine:
 
         Returns
         -------
-        float  实际花费的现金总额（含佣金）
+        (cash_spent, alias)  实际花费现金总额（含佣金）及打分偏离度
         """
         # 取分数最高的 top_n 只股票
         top = signals.head(min(self.cfg.top_n, len(signals)))
         n = len(top)
         if n == 0:
-            return 0.0
+            return 0.0, float('nan')
 
         score_std = signals['score'].std()
         score_mean = signals['score'].mean()
-        score_num_n = signals['score'].iloc[99]
-        times = (score_num_n - score_mean) / score_std
-        print("times:", times)
-        self.log_file.write(f"{times},")
+        nth = min(self.cfg.top_n, len(signals)) - 1
+        score_num_n = signals['score'].iloc[nth]
+        alias = (score_num_n - score_mean) / score_std if score_std != 0 else float('nan')
+        print("alias:", alias)
+        self.log_file.write(f"{alias},")
 
         # 买入当天 pct_chg 列名（Tushare 标准字段）
         pct_col = next((c for c in ('pct_chg', 'pct_change') if c in price_index.columns), None)
@@ -217,7 +218,7 @@ class BacktestEngine:
             trade_log.append((today, 'BUY', stock, shares, buy_price, cost))
             picks_log.append((today, stock, score, buy_price, shares, pick_mv, pct_chg))
 
-        return cash_spent, times
+        return cash_spent, alias
 
     # ------------------------------------------------------------------ #
     #  主循环                                                               #
@@ -257,8 +258,7 @@ class BacktestEngine:
         daily_nav: list = []                    # [(date, nav), ...]，最终转为 DataFrame
         trade_log: list = []                    # 完整成交记录
         picks_log: list = []                    # 选股打分记录：(date, ts_code, score, buy_price, shares)
-        alias_log: list = []
-        trade_prof:list = []
+        batch_log: list = []                    # 每批买入记录：(buy_date, alias)
         pending_buy: Optional[tuple] = None     # T 日生成的信号，在 T+1 日成交
 
         # 下一次需要生成信号的 trade_dates 下标
@@ -293,15 +293,14 @@ class BacktestEngine:
 
             # ④ 执行前一日信号的买入（用今日收盘价成交）
             # 仅在全部清仓后触发：避免持仓期间反复用旧信号建仓，导致持仓周期混乱
-            times = -100
             if not positions:
                 if pending_buy is not None:
                     print("今天是", today)
                     signals, timing_ratio = pending_buy
                     invest = cash * timing_ratio
-                    cash_spent, times = self._execute_buys(today, invest, signals, positions, price_index, trade_log, picks_log)
+                    cash_spent, alias = self._execute_buys(today, invest, signals, positions, price_index, trade_log, picks_log)
                     cash -= cash_spent
-                    alias_log.append(times)
+                    batch_log.append((today, alias))
                     # 建仓成功后：下一次信号在 holding_period-1 天后生成（卖出前一天）
                     if positions:
                         next_signal_idx = i + self.cfg.holding_period - 1
@@ -327,10 +326,6 @@ class BacktestEngine:
             # ⑥ 更新今日 NAV（交易后，含新建仓位的成本）
             daily_nav[-1] = (today, cash + self._holdings_value(positions))
             print(daily_nav[-1])
-            if times != -100:
-                # 说明今天是买入日也是卖出日
-                if len(alias_log) > 1:
-                    trade_prof.append(daily_nav[-1][1] - daily_nav[-6][1])
 
 
         # ---- 回测结束，强制平仓所有剩余持仓（用最后一日收盘价结算）----
@@ -345,18 +340,20 @@ class BacktestEngine:
                         if stock in price_index_last.index
                         else pos['buy_price']
                     )
-                    cash += pos['shares'] * price * (1 - self.cfg.commission)
+                    proceeds = pos['shares'] * price * (1 - self.cfg.commission)
+                    cash += proceeds
+                    trade_log.append((last_date, 'SELL', stock, pos['shares'], price, proceeds))
                 positions.clear()
                 if daily_nav:
                     daily_nav[-1] = (last_date, cash)
 
         nav_df = pd.DataFrame(daily_nav, columns=['date', 'nav'])
-        self._dump_results(start_date, end_date, nav_df, trade_log, picks_log)
+        self._dump_results(start_date, end_date, nav_df, trade_log, picks_log, batch_log)
         return nav_df, trade_log
 
     def _dump_results(
         self, start_date: str, end_date: str,
-        nav_df: pd.DataFrame, trade_log: list, picks_log: list
+        nav_df: pd.DataFrame, trade_log: list, picks_log: list, batch_log: list
     ) -> None:
         """
         将回测结果持久化到本地目录。
@@ -392,7 +389,36 @@ class BacktestEngine:
             columns=['date', 'ts_code', 'score', 'buy_price', 'shares', 'total_mv', 'pct_change']
         ).to_csv(os.path.join(result_dir, 'daily_picks.csv'), index=False)
 
+        if batch_log:
+            batch_df = self._compute_batch_profits(trade_log, batch_log)
+            batch_df.to_csv(os.path.join(result_dir, 'batch_alias_profit.csv'), index=False)
+
         print(f'回测结果已保存 → {result_dir}')
+
+    # ------------------------------------------------------------------ #
+    #  批次收益计算                                                          #
+    # ------------------------------------------------------------------ #
+
+    def _compute_batch_profits(self, trade_log: list, batch_log: list) -> pd.DataFrame:
+        """
+        计算每批买入对应的实现收益率，与 alias 对齐输出。
+
+        匹配逻辑：每批 BUY 发生在 buy_date，对应 SELLs 在下一批 BUY 之前（含强制平仓）。
+        trade_profit = (sell_proceeds_sum - buy_cost_sum) / buy_cost_sum
+        """
+        tl = pd.DataFrame(trade_log, columns=['date', 'side', 'ts_code', 'shares', 'price', 'amount'])
+        buy_dates = [d for d, _ in batch_log]
+        rows = []
+        for i, (buy_date, alias) in enumerate(batch_log):
+            total_cost = tl.loc[(tl['date'] == buy_date) & (tl['side'] == 'BUY'), 'amount'].sum()
+            next_buy = buy_dates[i + 1] if i + 1 < len(buy_dates) else None
+            sell_mask = (tl['side'] == 'SELL') & (tl['date'] > buy_date)
+            if next_buy:
+                sell_mask &= (tl['date'] <= next_buy)
+            total_proceeds = tl.loc[sell_mask, 'amount'].sum()
+            trade_profit = (total_proceeds - total_cost) / total_cost if total_cost > 0 else float('nan')
+            rows.append((buy_date, alias, trade_profit))
+        return pd.DataFrame(rows, columns=['trade_date', 'alias', 'trade_profit'])
 
     # ------------------------------------------------------------------ #
     #  绩效报告                                                             #
@@ -416,15 +442,25 @@ class BacktestEngine:
         """
         if capital is None:
             capital = self.cfg.initial_capital
-        nav = nav_df.copy()
-        nav['ret'] = nav['nav'].pct_change()   # 日收益率序列
-        std_ret = nav['ret'].std()
-        # 年化夏普：假设无风险利率为 0，252 为年交易日数
-        sharpe = (nav['ret'].mean() / std_ret) * np.sqrt(252) if std_ret != 0 else 0.0
+        nav = nav_df.copy().reset_index(drop=True)
+
+        # 跳过前置空仓预热期（净值持续不变的阶段）
+        # 预热期每日 pct_change = 0，会稀释胜率、夏普、年化收益率
+        daily_ret_all = nav['nav'].pct_change().fillna(0)
+        first_active  = int((daily_ret_all.abs() > 1e-9).idxmax())
+        nav_active    = nav.iloc[first_active:].copy().reset_index(drop=True)
+
+        nav_active['ret'] = nav_active['nav'].pct_change()
+        ret = nav_active['ret'].dropna()
+
+        std_ret = ret.std()
+        sharpe  = (ret.mean() / std_ret) * np.sqrt(252) if std_ret != 0 else 0.0
         total_return = nav['nav'].iloc[-1] / capital - 1
-        # 逐日计算相对历史峰值的回撤幅度
-        nav['drawdown'] = (nav['nav'] - nav['nav'].cummax()) / nav['nav'].cummax()
-        ann_return = (nav['nav'].iloc[-1] / capital) ** (252 / len(nav)) - 1
+        ann_return   = (nav['nav'].iloc[-1] / capital) ** (252 / len(nav_active)) - 1
+        nav_active['drawdown'] = (
+            (nav_active['nav'] - nav_active['nav'].cummax()) / nav_active['nav'].cummax()
+        )
+        win_rate = (ret > 0).mean()
 
         print("========== 回测报告 ==========")
         print(f"初始资金:     {capital:>15,.0f}")
@@ -432,5 +468,7 @@ class BacktestEngine:
         print(f"总收益率:     {total_return:>14.2%}")
         print(f"年化收益率:   {ann_return:>14.2%}")
         print(f"年化夏普:     {sharpe:>14.4f}")
-        print(f"最大回撤:     {nav['drawdown'].min():>14.2%}")
-        print(f"日胜率:       {(nav['ret'] > 0).mean():>14.2%}")
+        print(f"最大回撤:     {nav_active['drawdown'].min():>14.2%}")
+        print(f"日胜率:       {win_rate:>14.2%}")
+        print(f"（统计区间: {nav_active['date'].iloc[0]} ~ {nav_active['date'].iloc[-1]}，"
+              f"共 {len(nav_active)} 个交易日，预热期已排除）")
