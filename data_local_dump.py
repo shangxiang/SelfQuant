@@ -211,7 +211,7 @@ class DownloadData:
     def index_daily(self, start: str = START_DATE, end: str = END_DATE) -> None:
         """下载 SZSE 全部指数的日线行情。"""
         self._ensure_dir(self.INDEX_DAILY_DIR)
-        index_list_path = os.path.join(self.INDEX_BASIC_DIR, "SZSE.csv")
+        index_list_path = os.path.join(self.INDEX_BASIC_DIR, "SSE.csv")
         code_list = pd.read_csv(index_list_path)['ts_code'].tolist()
         for ts_code in code_list:
             path = os.path.join(self.INDEX_DAILY_DIR, f"{ts_code}.csv")

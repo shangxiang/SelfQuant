@@ -13,18 +13,18 @@ from backtest.timing import MATiming
 if __name__ == '__main__':
     s_cfg = ElasticNetConfig()
     b_cfg = BacktestConfig()
-    b_cfg.top_n = 100
+    b_cfg.top_n = 10
 
     loader = DataLoader(s_cfg)
     strategy = ElasticNetStrategy(s_cfg, loader)
 
-    # 纯因子评估（Rank IC + 分层收益）
-    #strategy.simple_backtest('20230101', '20260331')
+    # # 纯因子评估（Rank IC + 分层收益）
+    # strategy.simple_backtest('20230101', '20260331')
 
     # 模拟交易回测
     timing = MATiming(
         index_file='data/raw/index_daily/000905.SH.csv',
-        ma_period=60,
+        ma_period=30,
     )
     sell = HoldNDaysSellStrategy(n=5)
 

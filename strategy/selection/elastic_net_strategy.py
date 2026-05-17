@@ -20,7 +20,7 @@ class ElasticNetConfig:
 
         # ---- 列名约定 ----
         self.stock_col = 'ts_code'   # 股票代码列
-        self.label_col = 'label'     # 预测目标列（未来 N 日收益率）
+        self.label_col = 'label_standard'     # 预测目标列（未来 N 日收益率）
         # label 所代表的持有期天数，用于多空收益的非重叠采样和夏普年化
         # 与 label_col 对应：'label'=5, 'label_10'=10, 'label_25'=25
         self.label_period: int = 5
@@ -68,7 +68,7 @@ class ElasticNetConfig:
         # ---- 模型超参数 ----
         # 滚动训练窗口，单位：交易日
         # 越大则训练数据越多但对近期市场反应越慢
-        self.window = 40
+        self.window = 30
 
         # ElasticNetCV 的 L1 比例搜索网格
         # 0 = 纯 Ridge（L2），1 = 纯 Lasso（L1），中间值为混合

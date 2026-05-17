@@ -58,6 +58,7 @@ class BacktestEngine:
         self.timing = timing
         # 未指定卖出策略时，默认按 config.holding_period 持有后全部清仓
         self.sell_strategy = sell_strategy if sell_strategy is not None else HoldNDaysSellStrategy(config.holding_period)
+        self.log_file = open('tmp.csv', 'w')
 
     # ------------------------------------------------------------------ #
     #  内部工具                                                             #
@@ -178,6 +179,13 @@ class BacktestEngine:
         if n == 0:
             return 0.0
 
+        score_std = signals['score'].std()
+        score_mean = signals['score'].mean()
+        score_num_n = signals['score'].iloc[99]
+        times = (score_num_n - score_mean) / score_std
+        print("times:", times)
+        self.log_file.write(f"{times},")
+
         # 买入当天 pct_chg 列名（Tushare 标准字段）
         pct_col = next((c for c in ('pct_chg', 'pct_change') if c in price_index.columns), None)
 
@@ -209,7 +217,7 @@ class BacktestEngine:
             trade_log.append((today, 'BUY', stock, shares, buy_price, cost))
             picks_log.append((today, stock, score, buy_price, shares, pick_mv, pct_chg))
 
-        return cash_spent
+        return cash_spent, times
 
     # ------------------------------------------------------------------ #
     #  主循环                                                               #
@@ -249,6 +257,8 @@ class BacktestEngine:
         daily_nav: list = []                    # [(date, nav), ...]，最终转为 DataFrame
         trade_log: list = []                    # 完整成交记录
         picks_log: list = []                    # 选股打分记录：(date, ts_code, score, buy_price, shares)
+        alias_log: list = []
+        trade_prof:list = []
         pending_buy: Optional[tuple] = None     # T 日生成的信号，在 T+1 日成交
 
         # 下一次需要生成信号的 trade_dates 下标
@@ -272,17 +282,26 @@ class BacktestEngine:
             daily_nav.append((today, cash + self._holdings_value(positions)))
 
             # ③ 执行卖出策略（用今日收盘价结算）
+            cash_from_sells = 0
             if positions:
-                cash += self._execute_sells(positions, today, all_dates, trade_log)
+                cash_from_sells = self._execute_sells(positions, today, all_dates, trade_log)
+                cash += cash_from_sells
+                if cash_from_sells > 0:
+                    print('今日收盘价卖出，today = ', today)
+                    if not positions and i < next_signal_idx:
+                        print('提前清仓了')
 
             # ④ 执行前一日信号的买入（用今日收盘价成交）
             # 仅在全部清仓后触发：避免持仓期间反复用旧信号建仓，导致持仓周期混乱
+            times = -100
             if not positions:
                 if pending_buy is not None:
                     print("今天是", today)
                     signals, timing_ratio = pending_buy
                     invest = cash * timing_ratio
-                    cash -= self._execute_buys(today, invest, signals, positions, price_index, trade_log, picks_log)
+                    cash_spent, times = self._execute_buys(today, invest, signals, positions, price_index, trade_log, picks_log)
+                    cash -= cash_spent
+                    alias_log.append(times)
                     # 建仓成功后：下一次信号在 holding_period-1 天后生成（卖出前一天）
                     if positions:
                         next_signal_idx = i + self.cfg.holding_period - 1
@@ -308,6 +327,11 @@ class BacktestEngine:
             # ⑥ 更新今日 NAV（交易后，含新建仓位的成本）
             daily_nav[-1] = (today, cash + self._holdings_value(positions))
             print(daily_nav[-1])
+            if times != -100:
+                # 说明今天是买入日也是卖出日
+                if len(alias_log) > 1:
+                    trade_prof.append(daily_nav[-1][1] - daily_nav[-6][1])
+
 
         # ---- 回测结束，强制平仓所有剩余持仓（用最后一日收盘价结算）----
         if positions:

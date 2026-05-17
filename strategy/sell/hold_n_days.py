@@ -35,6 +35,8 @@ class HoldNDaysSellStrategy(BaseSellStrategy):
         result = {}
         for pos in positions:
             buy_date = pos['buy_date']
+            buy_price = pos['buy_price']
+            current_price = pos['current_price']
             if buy_date not in all_dates:
                 # buy_date 不在日历中属于异常情况（数据错误），直接清仓
                 result[pos['ts_code']] = 0.0
@@ -42,4 +44,7 @@ class HoldNDaysSellStrategy(BaseSellStrategy):
             # held = 从买入日到今日经过的交易日数（今日 - 买入日，以索引差计）
             held = today_idx - all_dates.index(buy_date)
             result[pos['ts_code']] = 0.0 if held >= self.n else 1.0
+            if (current_price - buy_price) / buy_price < -0.05:
+                result[pos['ts_code']] = 0.0
+
         return result

@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
 # ---- 中文字体 ----
-plt.rcParams['font.family'] = 'STHeiti'
+plt.rcParams['font.family'] = 'Microsoft YaHei'
 plt.rcParams['axes.unicode_minus'] = False
 
 # ------------------------------------------------------------------ #
@@ -164,12 +164,13 @@ def make_figure(df: pd.DataFrame, save_path: str) -> None:
 # ------------------------------------------------------------------ #
 
 def main():
-    if len(sys.argv) < 2:
-        print('用法: python analyse/cap_distribution.py <task目录路径>')
-        print('示例: python analyse/cap_distribution.py backtest/results/20230103_20260331_20260516_162203')
-        sys.exit(1)
+    # if len(sys.argv) < 2:
+    #     print('用法: python analyse/cap_distribution.py <task目录路径>')
+    #     print('示例: python analyse/cap_distribution.py backtest/results/20230103_20260331_20260516_162203')
+    #     sys.exit(1)
 
-    task_dir   = sys.argv[1]
+    # task_dir   = sys.argv[1]
+    task_dir = os.path.dirname("../backtest/results/20230103_20260331_20260517_033335/")
     picks_path = resolve_picks_path(task_dir)
 
     print(f'读取：{picks_path}')
