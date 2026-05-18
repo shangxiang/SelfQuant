@@ -25,6 +25,12 @@ class ElasticNetConfig:
         # 与 label_col 对应：'label'=5, 'label_10'=10, 'label_25'=25
         self.label_period: int = 5
 
+        # label 在截面日 d 之后多少个交易日才能确认（即 label 最后用到的未来价格偏移量）
+        # 旧 label（T→T+5）：5 日后可知，lookahead=5
+        # 新 label（T+1→T+6）：6 日后可知，lookahead=6
+        # _build_train_data 用此值截断训练集末端，防止未来函数
+        self.label_lookahead: int = 6
+
         # ---- 参与建模的因子列 ----
         self.factor_cols = [
             # 估值类
@@ -131,8 +137,9 @@ class ElasticNetStrategy(BaseStrategy):
         X_list, y_list = [], []
 
         for j in range(max(0, today_idx - self.cfg.window + 1), today_idx + 1):
-            # 跳过最近 5 天：label = 未来5日收益，这些天的 label 尚未实现
-            if j + 5 > today_idx:
+            # 跳过最近 label_lookahead 天：label = (close[d+6]-close[d+1])/close[d+1]，
+            # 需要 d+6 的价格才能确认，故 d+lookahead > today 的样本不能用于训练
+            if j + self.cfg.label_lookahead > today_idx:
                 continue
 
             t_date = all_dates[j]

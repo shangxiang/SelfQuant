@@ -260,6 +260,7 @@ class BacktestEngine:
         picks_log: list = []                    # 选股打分记录：(date, ts_code, score, buy_price, shares)
         batch_log: list = []                    # 每批买入记录：(buy_date, alias)
         last_batch_cost: float = 0.0            # 上批买入总成本，用于计算已实现收益率
+        batch_sell_proceeds: float = 0.0        # 本批累计卖出金额（跨多日，止损+到期合计）
         pending_buy: Optional[tuple] = None     # T 日生成的信号，在 T+1 日成交
 
         # 下一次需要生成信号的 trade_dates 下标
@@ -289,12 +290,13 @@ class BacktestEngine:
                 cash_from_sells = self._execute_sells(positions, today, all_dates, trade_log)
                 cash += cash_from_sells
                 if cash_from_sells > 0:
+                    batch_sell_proceeds += cash_from_sells   # 累积本批所有卖出（含止损中途卖出）
                     print('今日收盘价卖出，today = ', today)
                     if not positions and i < next_signal_idx:
                         print('提前清仓了')
-                    # 全部清仓后通知择时策略本批已实现收益率
+                    # 全部清仓后通知择时策略本批已实现收益率（用累计卖出，而非仅当日卖出）
                     if not positions and self.timing is not None and last_batch_cost > 0:
-                        batch_profit = (cash_from_sells - last_batch_cost) / last_batch_cost
+                        batch_profit = (batch_sell_proceeds - last_batch_cost) / last_batch_cost
                         self.timing.on_batch_sold(batch_profit)
 
             # ④ 执行前一日信号的买入（用今日收盘价成交）
@@ -309,6 +311,7 @@ class BacktestEngine:
                         cash_spent, alias = self._execute_buys(today, invest, pending_buy, positions, price_index, trade_log, picks_log)
                         cash -= cash_spent
                         last_batch_cost = cash_spent
+                        batch_sell_proceeds = 0.0            # 新批次开始，重置累计卖出金额
                         batch_log.append((today, alias))
                         if positions:
                             next_signal_idx = i + self.cfg.holding_period - 1

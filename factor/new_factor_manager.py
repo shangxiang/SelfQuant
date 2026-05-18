@@ -211,19 +211,19 @@ class FactorManager:
     def label(self, period: int = 5):
         """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
         df = self.df
-        df['label'] = (df['close_x'].shift(-period) - df['close_x']) / df['close_x']
+        df['label'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x']
         return df[['label']]
 
     def label_10(self, period: int = 10):
         """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
         df = self.df
-        df['label_10'] = (df['close_x'].shift(-period) - df['close_x']) / df['close_x']
+        df['label_10'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x']
         return df[['label_10']]
 
     def label_25(self, period: int = 25):
         """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
         df = self.df
-        df['label_25'] = (df['close_x'].shift(-period) - df['close_x']) / df['close_x']
+        df['label_25'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x']
         return df[['label_25']]
 
     def macd(self, price_col='close_x', fast=12, slow=26, signal=9):
