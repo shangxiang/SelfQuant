@@ -229,3 +229,112 @@ class LastBatchTiming(BaseTimingStrategy):
 
     def get_position_ratio(self, date_str: str) -> float:
         return self._ratio
+
+
+class BlindWindowTiming(BaseTimingStrategy):
+    """
+    盲窗口行情择时：根据买入信号日前 T-6~T 的大小盘市场特征决定仓位。
+
+    ElasticNet 模型训练集截止到 T-6（label_lookahead=6），T-6 到 T 这段行情
+    是模型的"盲窗口"——模型未见过这段数据。实证发现，当这段窗口内：
+      - 大小盘日收益相关性高（corr_5d 高）：大小盘同向，因子信号有效性更强
+      - 大盘日波动率高（l_vol 高）：市场活跃，因子区分度更高
+    两者同时满足时批次胜率约 67%，均值收益 +1.57%；
+    任一偏低时胜率降至 43%，均值收益 -0.19%，不如空仓。
+
+    仓位规则（二值化）：
+      corr_5d < corr_threshold  OR  l_vol < vol_threshold  →  avoid_ratio（默认空仓）
+      否则                                                  →  1.0（满仓）
+
+    阈值使用滚动历史分位数（rolling_window 期），避免使用未来数据。
+
+    Parameters
+    ----------
+    small_file      : 小微盘指数日线 CSV（932000.CSI，需含 trade_date、close 列）
+    large_file      : 大中盘指数日线 CSV（000510.CSI，需含 trade_date、close 列）
+    signal_window   : 计算 corr/vol 所用的滚动窗口天数，默认 7（取约 6 个日收益）
+    corr_pct        : corr_5d 的历史分位数阈值，低于此分位数时触发空仓，默认 20
+    vol_pct         : l_vol 的历史分位数阈值，低于此分位数时触发空仓，默认 33
+    rolling_window  : 计算分位数阈值所用的历史样本数（滚动），默认 80（与 ElasticNet 训练窗口对齐）
+    avoid_ratio     : 触发条件时的仓位，默认 0.0（空仓）
+    """
+
+    def __init__(
+        self,
+        small_file: str = 'data/raw/index_daily/932000.CSI.csv',
+        large_file: str = 'data/raw/index_daily/000510.CSI.csv',
+        signal_window: int = 7,
+        corr_pct: float = 20.0,
+        vol_pct: float = 33.0,
+        rolling_window: int = 80,
+        avoid_ratio: float = 0.0,
+    ):
+        self.small_file     = small_file
+        self.large_file     = large_file
+        self.signal_window  = signal_window
+        self.corr_pct       = corr_pct
+        self.vol_pct        = vol_pct
+        # rolling_window 与 ElasticNet 训练窗口对齐（默认 80 交易日 ≈ 16 批次）：
+        # 用模型"见过"的同等长度历史来判断当前市场环境是否异常，逻辑自洽。
+        # 过短（<40）噪声大，过长（>120）阈值过于保守，80 在敏感性分析中表现稳健。
+        self.rolling_window = rolling_window
+        self.avoid_ratio    = avoid_ratio
+        self._map: dict[str, float] = {}
+
+    def prepare(self, start_date: str, end_date: str) -> None:
+        """
+        读取两只指数日线，逐日计算 corr_5d 和 l_vol，
+        再用滚动历史分位数确定阈值，最终生成每日仓位映射。
+        """
+        import numpy as np
+
+        def _load_close(path: str) -> pd.Series:
+            df = pd.read_csv(path)
+            df['trade_date'] = df['trade_date'].astype(str)
+            return df.sort_values('trade_date').set_index('trade_date')['close'].astype(float)
+
+        small_close = _load_close(self.small_file)
+        large_close = _load_close(self.large_file)
+
+        # 对齐日期，计算日收益率
+        idx = small_close.index.intersection(large_close.index)
+        s_ret = small_close.loc[idx].pct_change()
+        l_ret = large_close.loc[idx].pct_change()
+
+        df = pd.DataFrame({'s_ret': s_ret, 'l_ret': l_ret}).dropna()
+
+        # 滚动计算 corr_5d 和 l_vol（基于 signal_window 个日收益）
+        w = self.signal_window
+        df['corr_5d'] = df['s_ret'].rolling(w).corr(df['l_ret'])
+        df['l_vol']   = df['l_ret'].rolling(w).std()
+        df = df.dropna()
+
+        # 滚动分位数阈值：用过去 rolling_window 个观测值计算，避免未来函数
+        rw = self.rolling_window
+        df['corr_thresh'] = df['corr_5d'].rolling(rw, min_periods=rw // 2).quantile(
+            self.corr_pct / 100
+        )
+        df['vol_thresh'] = df['l_vol'].rolling(rw, min_periods=rw // 2).quantile(
+            self.vol_pct / 100
+        )
+
+        # 触发条件：corr 或 vol 低于各自阈值
+        avoid = (df['corr_5d'] < df['corr_thresh']) | (df['l_vol'] < df['vol_thresh'])
+        ratio = avoid.map({True: self.avoid_ratio, False: 1.0}).fillna(1.0)
+
+        # 时序对齐：engine 在 T+1 日买入时调用 get_position_ratio(T+1)，
+        # 但仓位判断必须基于 T 日收盘数据（T+1 收盘价是买入当天的未来数据）。
+        # 将 ratio 整体向后移一位：T 日计算的信号存入 T+1 日的 key，
+        # 使 engine 查 T+1 时拿到的是 T 日的判断，不引入未来函数。
+        ratio_shifted = ratio.shift(1)
+
+        self._map = dict(zip(df.index, ratio_shifted.values))
+
+    def get_position_ratio(self, date_str: str) -> float:
+        """
+        返回当日建仓比例。
+        历史数据不足（回测初期）或 shift 导致的 NaN 时默认满仓，不强制跳过建仓。
+        """
+        v = self._map.get(date_str, 1.0)
+        import math
+        return 1.0 if (v != v) else v  # NaN check: NaN != NaN

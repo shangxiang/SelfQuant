@@ -170,7 +170,7 @@ def main():
     #     sys.exit(1)
 
     # task_dir   = sys.argv[1]
-    task_dir = os.path.dirname("../backtest/results/20230103_20260331_20260517_033335/")
+    task_dir = os.path.dirname("../backtest/results/20250103_20260331_20260518_124958/")
     picks_path = resolve_picks_path(task_dir)
 
     print(f'读取：{picks_path}')

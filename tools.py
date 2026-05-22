@@ -1,8 +1,10 @@
+import multiprocessing
 import numpy as np
 import pandas as pd
 import glob
 import statsmodels.api as sm
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 def series_to_section(colume_list=None):
@@ -57,6 +59,60 @@ def neutralize_one_day(df, factor_name, mv_col='total_mv', ind_col='industry'):
     return result
 
 
+def _standardize_one_file(args: tuple) -> str:
+    """处理单个截面文件的缩尾→中性化→标准化，返回文件路径。"""
+    file, stock_info_df, basic_column_list, should_neutralize = args
+
+    def winsorize_series(s, lower_perc=0.01, upper_perc=0.99):
+        return s.clip(s.quantile(lower_perc), s.quantile(upper_perc))
+
+    df = pd.read_csv(file)
+
+    for col in ('industry', 'industry_x', 'industry_y'):
+        if col in df.columns:
+            df.drop(col, axis=1, inplace=True)
+    df = df.merge(stock_info_df[['ts_code', 'industry']], on='ts_code', how='left')
+
+    for fac in should_neutralize:
+        if fac in df.columns:
+            df[fac] = winsorize_series(df[fac])
+
+    neutralized_cols = {}
+    for fac in should_neutralize:
+        if fac not in df.columns:
+            continue
+        if fac + '_neutral' in df.columns:
+            continue
+        if df[fac].isna().all():
+            neutralized_cols[fac + '_neutral'] = 0
+            continue
+        neutralized_cols[fac + '_neutral'] = neutralize_one_day(
+            df, factor_name=fac, mv_col='total_mv', ind_col='industry'
+        )
+    if neutralized_cols:
+        df = pd.concat([df, pd.DataFrame(neutralized_cols, index=df.index)], axis=1)
+
+    columns = df.columns.tolist()
+    need_standardize_columns = [c for c in columns if c not in basic_column_list]
+    new_columns = {}
+    for col in need_standardize_columns:
+        if '_standard' in col:
+            continue
+        std = df[col].std()
+        if std == 0 or pd.isna(std):
+            continue
+        if '_neutral' in col:
+            new_columns[col.replace('_neutral', '_standard')] = (df[col] - df[col].mean()) / std
+        elif col + '_neutral' not in columns:
+            new_columns[col + '_standard'] = (df[col] - df[col].mean()) / std
+
+    if new_columns:
+        df = pd.concat([df, pd.DataFrame(new_columns, index=df.index)], axis=1)
+
+    df.to_csv(file, index=False)
+    return file
+
+
 def standardize():
     """
     对 data/section/ 下每张截面 CSV 做三步处理：
@@ -71,120 +127,54 @@ def standardize():
         走直接 z-score 标准化路径
     """
 
-    stock_info_df = pd.read_csv("data/raw/stock_list/stock_list.csv")
+    stock_info_df = pd.read_csv('data/raw/stock_list/stock_list.csv')
 
-    # 不参与标准化的原始列：仅保留标识列、收益率和二值信号
-    # 凡是进入 should_neutralize 的字段均不在此处重复声明
     basic_column_list = [
-        # 标识与原始行情
         'ts_code', 'trade_date', 'name', 'reason',
         'pct_chg', 'pct_change', 'industry',
-        # 二值/离散信号：z-score 对 0/1 无意义
         'macd_air_refuel', 'macd_divergence', 'vol_breakout',
     ]
 
-    # 需要先行业+市值中性化的因子
-    # 注意：size_factor / smb_squared 本身就是市值变换，不在此列表
     should_neutralize = [
-        # 标签类
         'label', 'label_10', 'label_25',
-        # 估值类（行业间 PB/PE 差异极大）
         'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm',
-        # 规模类（绝对值受市值影响）
         'total_share', 'float_share', 'free_share',
         'vol', 'amount_x', 'amount_y',
         'turnover_rate_x', 'turnover_rate_f', 'turnover_rate_y', 'volume_ratio',
-        # 融资融券
         'rzye', 'rqye', 'rzmre', 'rqyl', 'rzche', 'rqchl', 'rqmcl', 'rzrqye',
-        # 资金流（大中小单）
         'buy_sm_vol', 'buy_sm_amount', 'sell_sm_vol', 'sell_sm_amount',
         'buy_md_vol', 'buy_md_amount', 'sell_md_vol', 'sell_md_amount',
         'buy_lg_vol', 'buy_lg_amount', 'sell_lg_vol', 'sell_lg_amount',
         'buy_elg_vol', 'buy_elg_amount', 'sell_elg_vol', 'sell_elg_amount',
         'net_mf_vol', 'net_mf_amount',
-        # 龙虎榜
         'l_sell', 'l_buy', 'l_amount', 'net_amount', 'net_rate', 'amount_rate',
-        # 技术量价因子（含行业/市值偏差）
         'positive_flow', 'negative_flow', 'mfi',
         'raw_force_index', 'force_index_smoothed', 'force_index', 'vwap',
         'mtm_margin_balance_change', 'big_order_ratio', 'lhb_strength_5d',
         'volatility_20d', 'reversal_5d', 'high_low_spread',
-        # 基本面因子
         'gross_margin', 'debt_ratio', 'roe_ttm',
         'revenue_growth_yoy', 'profit_growth_yoy', 'accruals',
-        # 新增：FF 风格因子（行业/市值偏差显著）
-        'asset_growth_yoy',   # 资产增速在重/轻资产行业差异大
-        'value_factor',       # 1/PB：金融/科技行业天然差异
-        'cma_factor',         # 资产增速取反，同 asset_growth_yoy
-        'momentum_12_1',      # 行业轮动带来动量的行业偏差
-        # 新增：高阶交叉因子（含动量/估值分量，需中性化）
-        'smb_mom',            # 小盘动量：动量分量含行业偏差
-        'smb_squared_mom',    # 规模²×动量：同上
-        'hml_rmw',            # 估值×盈利：估值分量含行业偏差
-        'smb_hml',            # 规模×估值：估值分量含行业偏差
-        'vol_mom',            # 波动率×动量：两者均含行业/市值偏差
+        'asset_growth_yoy', 'value_factor', 'cma_factor', 'momentum_12_1',
+        'smb_mom', 'smb_squared_mom', 'hml_rmw', 'smb_hml', 'vol_mom',
     ]
 
-    def winsorize_series(s, lower_perc=0.01, upper_perc=0.99):
-        """1%~99% 百分位缩尾，压制极端值对标准化的影响"""
-        return s.clip(s.quantile(lower_perc), s.quantile(upper_perc))
+    section_path = 'data/section/'
+    files = glob.glob(section_path + '*.csv')
+    total = len(files)
 
-    section_path = "data/section/"
-    for file in glob.glob(section_path + "*.csv"):
-        df = pd.read_csv(file)
-
-        # 合并行业信息（用于中性化）
-        if "industry" in df.columns:
-            df.drop("industry", axis=1, inplace=True)
-        if "industry_x" in df.columns:
-            df.drop("industry_x", axis=1, inplace=True)
-        if "industry_y" in df.columns:
-            df.drop("industry_y", axis=1, inplace=True)
-        df = df.merge(stock_info_df[["ts_code", "industry"]], on='ts_code', how='left')
-
-        # 步骤 1：缩尾
-        for fac in should_neutralize:
-            if fac in df.columns:
-                df[fac] = winsorize_series(df[fac])
-
-        # 步骤 2：中性化
-        neutralized_cols = {}
-        for fac in should_neutralize:
-            if fac not in df.columns:
-                continue
-            if fac + "_neutral" in df.columns:
-                continue
-            if df[fac].isna().all():
-                neutralized_cols[fac + '_neutral'] = 0
-                continue
-            neutralized_cols[fac + '_neutral'] = neutralize_one_day(
-                df, factor_name=fac, mv_col='total_mv', ind_col='industry'
-            )
-        if neutralized_cols:
-            df = pd.concat([df, pd.DataFrame(neutralized_cols, index=df.index)], axis=1)
-
-        # 步骤 3：Z-score 标准化
-        columns = df.columns.tolist()
-        need_standardize_columns = [c for c in columns if c not in basic_column_list]
-        new_columns = {}
-        for col in need_standardize_columns:
-            if '_standard' in col:
-                continue
-            std = df[col].std()
-            if std == 0 or pd.isna(std):
-                continue
-            if '_neutral' in col:
-                # 中性化列 → 标准化后去掉 _neutral 后缀
-                new_columns[col.replace('_neutral', '_standard')] = (df[col] - df[col].mean()) / std
-            elif col + '_neutral' not in columns:
-                # 无对应中性化版本 → 直接标准化原始列
-                new_columns[col + '_standard'] = (df[col] - df[col].mean()) / std
-
-        if new_columns:
-            df = pd.concat([df, pd.DataFrame(new_columns, index=df.index)], axis=1)
-
-        df.to_csv(file, index=False)
-        print("标准化", str(file))
+    n_workers = max(1, multiprocessing.cpu_count() - 1)
+    completed = 0
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        task_args = [(f, stock_info_df, basic_column_list, should_neutralize) for f in files]
+        futures = {executor.submit(_standardize_one_file, a): a[0] for a in task_args}
+        for future in as_completed(futures):
+            completed += 1
+            try:
+                result = future.result()
+                print(f'\r标准化 {completed}/{total}', end='', flush=True)
+            except Exception as e:
+                print(f'\n  ✗ {futures[future]}: {e}')
+    print()
 
 
 def section_duplicates():
@@ -197,6 +187,6 @@ def section_duplicates():
 
 
 if __name__ == '__main__':
-    # series_to_section()
-    #standardize()
-    section_duplicates()
+    series_to_section()
+    standardize()
+    # section_duplicates()

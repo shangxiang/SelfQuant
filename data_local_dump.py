@@ -3,8 +3,8 @@ import time
 import pandas as pd
 from data_api.tushareApi import TushareDataSource
 
-START_DATE = "20250101"
-END_DATE   = "20260507"
+START_DATE = "20200101"
+END_DATE   = "20260518"
 
 
 class DownloadData:
@@ -152,76 +152,141 @@ class DownloadData:
     #  按股票下载（每只股票一个文件）                                       #
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _incremental_start(path: str, date_col: str) -> str | None:
+        """
+        读取已有文件中 date_col 列的最大值，返回其后一天作为增量起点。
+        文件不存在或读取失败时返回 None（表示全量下载）。
+        """
+        if not os.path.exists(path):
+            return None
+        try:
+            df = pd.read_csv(path, usecols=[date_col], dtype={date_col: str})
+            latest = df[date_col].dropna().max()
+            if not latest:
+                return None
+            # 返回最新日期的次日（字符串 YYYYMMDD），API 会自动对齐到下一个交易日
+            dt = pd.to_datetime(latest, format='%Y%m%d') + pd.Timedelta(days=1)
+            return dt.strftime('%Y%m%d')
+        except Exception:
+            return None
+
+    @staticmethod
+    def _append_and_save(path: str, existing_df: pd.DataFrame | None,
+                         new_df: pd.DataFrame, dedup_cols: list[str]) -> None:
+        """合并新旧数据，按 dedup_cols 去重后写回文件。"""
+        if existing_df is not None and not existing_df.empty:
+            combined = pd.concat([existing_df, new_df], ignore_index=True)
+        else:
+            combined = new_df
+        combined = combined.drop_duplicates(subset=dedup_cols)
+        combined.to_csv(path, index=False)
+
     def stock_data(self, start: str = START_DATE, end: str = END_DATE) -> None:
-        """下载每只股票的前复权日线行情。"""
+        """下载每只股票的前复权日线行情，支持增量更新。"""
         self._ensure_dir(self.STOCK_DATA_DIR)
         for ts_code in self._get_stock_list():
             path = os.path.join(self.STOCK_DATA_DIR, f"{ts_code}.csv")
-            if os.path.exists(path):
-                continue
-            print(f"  stock_data {ts_code}")
-            df = self.api.get_stock_data(code=ts_code, startdate=start, enddate=end)
+            inc_start = self._incremental_start(path, 'trade_date')
+            if inc_start is None:
+                fetch_start = start
+                existing = None
+            elif inc_start > end:
+                continue   # 已是最新，无需更新
+            else:
+                fetch_start = inc_start
+                existing = pd.read_csv(path, dtype={'trade_date': str})
+            df = self.api.get_stock_data(code=ts_code, startdate=fetch_start, enddate=end)
             if df is None or df.empty:
                 continue
-            df.to_csv(path, index=False)
+            print(f"  stock_data {ts_code}  {fetch_start}~{end}  +{len(df)}行")
+            self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'trade_date'])
             time.sleep(0.1)
 
     def income(self, start: str = START_DATE, end: str = END_DATE) -> None:
-        """下载每只股票的利润表。"""
+        """下载每只股票的利润表，支持增量更新。"""
         self._ensure_dir(self.INCOME_DIR)
         for ts_code in self._get_stock_list():
             path = os.path.join(self.INCOME_DIR, f"{ts_code}.csv")
-            if os.path.exists(path):
+            inc_start = self._incremental_start(path, 'ann_date')
+            if inc_start is None:
+                fetch_start = start
+                existing = None
+            elif inc_start > end:
                 continue
-            print(f"  income {ts_code}")
-            df = self.api.get_income(code=ts_code, startdate=start, enddate=end)
+            else:
+                fetch_start = inc_start
+                existing = pd.read_csv(path, dtype={'ann_date': str})
+            df = self.api.get_income(code=ts_code, startdate=fetch_start, enddate=end)
             if df is None or df.empty:
                 continue
-            df.to_csv(path, index=False)
+            print(f"  income {ts_code}  {fetch_start}~{end}  +{len(df)}行")
+            self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'ann_date', 'end_date'])
             time.sleep(0.4)
 
     def balancesheet(self, start: str = START_DATE, end: str = END_DATE) -> None:
-        """下载每只股票的资产负债表。"""
+        """下载每只股票的资产负债表，支持增量更新。"""
         self._ensure_dir(self.BALANCESHEET_DIR)
         for ts_code in self._get_stock_list():
             path = os.path.join(self.BALANCESHEET_DIR, f"{ts_code}.csv")
-            if os.path.exists(path):
+            inc_start = self._incremental_start(path, 'ann_date')
+            if inc_start is None:
+                fetch_start = start
+                existing = None
+            elif inc_start > end:
                 continue
-            print(f"  balancesheet {ts_code}")
-            df = self.api.get_balancesheet(code=ts_code, startdate=start, enddate=end)
+            else:
+                fetch_start = inc_start
+                existing = pd.read_csv(path, dtype={'ann_date': str})
+            df = self.api.get_balancesheet(code=ts_code, startdate=fetch_start, enddate=end)
             if df is None or df.empty:
                 continue
-            df.to_csv(path, index=False)
+            print(f"  balancesheet {ts_code}  {fetch_start}~{end}  +{len(df)}行")
+            self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'ann_date', 'end_date'])
             time.sleep(0.4)
 
     def cashflow(self, start: str = START_DATE, end: str = END_DATE) -> None:
-        """下载每只股票的现金流量表。"""
+        """下载每只股票的现金流量表，支持增量更新。"""
         self._ensure_dir(self.CASHFLOW_DIR)
         for ts_code in self._get_stock_list():
             path = os.path.join(self.CASHFLOW_DIR, f"{ts_code}.csv")
-            if os.path.exists(path):
+            inc_start = self._incremental_start(path, 'ann_date')
+            if inc_start is None:
+                fetch_start = start
+                existing = None
+            elif inc_start > end:
                 continue
-            print(f"  cashflow {ts_code}")
-            df = self.api.get_cashflow(code=ts_code, startdate=start, enddate=end)
+            else:
+                fetch_start = inc_start
+                existing = pd.read_csv(path, dtype={'ann_date': str})
+            df = self.api.get_cashflow(code=ts_code, startdate=fetch_start, enddate=end)
             if df is None or df.empty:
                 continue
-            df.to_csv(path, index=False)
+            print(f"  cashflow {ts_code}  {fetch_start}~{end}  +{len(df)}行")
+            self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'ann_date', 'end_date'])
             time.sleep(0.4)
 
     def index_daily(self, start: str = START_DATE, end: str = END_DATE) -> None:
-        """下载 SZSE 全部指数的日线行情。"""
+        """下载 SZSE 全部指数的日线行情，支持增量更新。"""
         self._ensure_dir(self.INDEX_DAILY_DIR)
         index_list_path = os.path.join(self.INDEX_BASIC_DIR, "SSE.csv")
         code_list = pd.read_csv(index_list_path)['ts_code'].tolist()
         for ts_code in code_list:
             path = os.path.join(self.INDEX_DAILY_DIR, f"{ts_code}.csv")
-            if os.path.exists(path):
+            inc_start = self._incremental_start(path, 'trade_date')
+            if inc_start is None:
+                fetch_start = start
+                existing = None
+            elif inc_start > end:
                 continue
-            print(f"  index_daily {ts_code}")
-            df = self.api.get_index_daily(ts_code=ts_code, startdate=start, enddate=end)
+            else:
+                fetch_start = inc_start
+                existing = pd.read_csv(path, dtype={'trade_date': str})
+            df = self.api.get_index_daily(ts_code=ts_code, startdate=fetch_start, enddate=end)
             if df is None or df.empty:
                 continue
-            df.to_csv(path, index=False)
+            print(f"  index_daily {ts_code}  {fetch_start}~{end}  +{len(df)}行")
+            self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'trade_date'])
             time.sleep(0.4)
 
 
@@ -246,4 +311,4 @@ if __name__ == '__main__':
     d.cashflow()
 
     # ④ 指数日线（依赖 index_basic 已下载）
-    d.index_daily()
+    # d.index_daily()

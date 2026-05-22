@@ -1,7 +1,9 @@
+import multiprocessing
 import numpy as np
 import pandas as pd
 import glob
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 # ================== 1. 财务因子预处理 ==================
@@ -211,19 +213,19 @@ class FactorManager:
     def label(self, period: int = 5):
         """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
         df = self.df
-        df['label'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x']
+        df['label'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
         return df[['label']]
 
     def label_10(self, period: int = 10):
         """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
         df = self.df
-        df['label_10'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x']
+        df['label_10'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
         return df[['label_10']]
 
     def label_25(self, period: int = 25):
         """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
         df = self.df
-        df['label_25'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x']
+        df['label_25'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
         return df[['label_25']]
 
     def macd(self, price_col='close_x', fast=12, slow=26, signal=9):
@@ -245,30 +247,23 @@ class FactorManager:
         """
         KDJ 随机指标：K、D 为平滑后的超买超卖指标，J 为 K 和 D 的偏离度。
         RSV = (收盘 - N日最低) / (N日最高 - N日最低) * 100
-        K = (K_prev * (period-1) + RSV) / period（加权移动平均）
+        K = EWM(RSV, alpha=1/k_period)，D = EWM(K, alpha=1/d_period)
         最高最低价相等时（一字板等）RSV 设为 50，避免除零。
         """
         df = self.df
-        df['lowest_low']   = df[low_col].rolling(window=period, min_periods=1).min()
-        df['highest_high'] = df[high_col].rolling(window=period, min_periods=1).max()
-        denom = df['highest_high'] - df['lowest_low']
-        rsv = pd.Series(index=df.index, dtype=float)
-        mask = denom == 0
-        rsv[~mask] = 100 * (df.loc[~mask, close_col] - df.loc[~mask, 'lowest_low']) / denom[~mask]
-        rsv[mask]  = 50.0  # 最高最低价相等（如一字涨停/跌停），RSV 取中性值
-        ks = [50.0] * len(df)
-        ds = [50.0] * len(df)
-        for i in range(len(df)):
-            if i == 0:
-                ks[i] = rsv.iloc[i]
-                ds[i] = rsv.iloc[i]
-            else:
-                ks[i] = (ks[i - 1] * (k_period - 1) + rsv.iloc[i]) / k_period
-                ds[i] = (ds[i - 1] * (d_period - 1) + ks[i]) / d_period
-        df['K'] = ks
-        df['D'] = ds
-        df['J'] = 3 * df['K'] - 2 * df['D']   # J 超出 [0,100] 表示极度超买/超卖
-        df.drop(['lowest_low', 'highest_high'], axis=1, inplace=True)
+        lowest_low   = df[low_col].rolling(window=period, min_periods=1).min()
+        highest_high = df[high_col].rolling(window=period, min_periods=1).max()
+        denom = highest_high - lowest_low
+        rsv = pd.Series(50.0, index=df.index, dtype=float)
+        mask = denom != 0
+        rsv[mask] = 100 * (df.loc[mask, close_col] - lowest_low[mask]) / denom[mask]
+
+        # EWM 等价于原始递推：alpha = 1/k_period 时 new = alpha*x + (1-alpha)*prev
+        alpha_k = 1.0 / k_period
+        alpha_d = 1.0 / d_period
+        df['K'] = rsv.ewm(alpha=alpha_k, adjust=False).mean()
+        df['D'] = df['K'].ewm(alpha=alpha_d, adjust=False).mean()
+        df['J'] = 3 * df['K'] - 2 * df['D']
         return df[['K', 'D', 'J']]
 
     def rsi(self, price_col='close_x', period=14):
@@ -627,7 +622,17 @@ class FactorManager:
         return True
 
 
-# ================== 3. 主程序 ==================
+# ================== 3. 并行工作函数（必须在模块顶层，ProcessPoolExecutor 才能 pickle）==================
+
+def _process_one_stock(args: tuple) -> str:
+    """处理单只股票的因子计算，返回文件路径（供进度追踪）。"""
+    file, fin_features = args
+    fm = FactorManager(file, fin_features)
+    fm.update_factor()
+    return file
+
+
+# ================== 4. 主程序 ==================
 
 if __name__ == '__main__':
     # 路径相对于本文件所在目录的上层（项目根），无论从哪里执行都正确
@@ -642,8 +647,19 @@ if __name__ == '__main__':
     # 只匹配股票代码文件（6位数字.交易所.csv），排除 daily_basic_data.csv 等合并产物
     files = glob.glob(series_path + "[0-9]*.csv")
     total = len(files)
-    for idx, file in enumerate(files, 1):
-        print(f"\r处理 {idx}/{total}: {file}", end='', flush=True)
-        fm = FactorManager(file, fin_features)
-        fm.update_factor()
-    print("\n全部完成！")
+
+    n_workers = max(1, multiprocessing.cpu_count() - 1)
+    print(f"启动 {n_workers} 个进程并行计算因子（共 {total} 只股票）...")
+
+    completed = 0
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        futures = {executor.submit(_process_one_stock, (f, fin_features)): f for f in files}
+        for future in as_completed(futures):
+            completed += 1
+            print(f"\r完成 {completed}/{total}", end='', flush=True)
+            try:
+                future.result()
+            except Exception as e:
+                print(f"\n  ✗ {futures[future]}: {e}")
+
+    print("\n因子计算完成。")

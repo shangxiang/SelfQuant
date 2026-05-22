@@ -74,7 +74,7 @@ class ElasticNetConfig:
         # ---- 模型超参数 ----
         # 滚动训练窗口，单位：交易日
         # 越大则训练数据越多但对近期市场反应越慢
-        self.window = 30
+        self.window = 80
 
         # ElasticNetCV 的 L1 比例搜索网格
         # 0 = 纯 Ridge（L2），1 = 纯 Lasso（L1），中间值为混合
@@ -85,7 +85,7 @@ class ElasticNetConfig:
 
         # 是否对每日更新的因子权重做指数移动平滑（EMA）
         # 可减少模型在相邻交易日之间的权重跳变，使仓位更稳定
-        self.smooth_weights = True
+        self.smooth_weights = False
 
         # EMA 平滑系数：新权重 = alpha * 新值 + (1-alpha) * 旧值
         # alpha 越小，历史权重影响越大，变化越平滑
