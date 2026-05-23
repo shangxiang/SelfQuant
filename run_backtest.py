@@ -7,7 +7,7 @@ from strategy.selection.elastic_net_strategy import ElasticNetConfig, ElasticNet
 from strategy.sell.hold_n_days import HoldNDaysSellStrategy
 from backtest.config import BacktestConfig
 from backtest.engine import BacktestEngine
-from backtest.timing import MATiming, StyleConvergenceTiming, LastBatchTiming
+from backtest.timing import MATiming, StyleConvergenceTiming, LastBatchTiming, BlindWindowTiming
 
 
 if __name__ == '__main__':
@@ -23,16 +23,24 @@ if __name__ == '__main__':
 
     # 均线择时（原方案）
     # timing = MATiming(
-    #     index_file='data/raw/index_daily/399005.SZ.csv',
+    #     index_file='data/raw/index_daily/932000.CSI.csv',
     #     ma_period=60,
     # )
+    timing = BlindWindowTiming(
+        small_file='data/raw/index_daily/932000.CSI.csv',
+        large_file='data/raw/index_daily/000510.CSI.csv',
+        corr_pct=20.0,   # corr_5d 低于历史 20% 分位 → 空仓
+        vol_pct=33.0,    # l_vol   低于历史 33% 分位 → 空仓
+        avoid_ratio=0.0, # 触发时空仓（改成 0.5 则半仓）
+        rolling_window=80
+    )
 
     # 大小盘风格趋同择时：高相关 + 双双下行时空仓
-    timing = StyleConvergenceTiming(
-        roll_window=5,        # 滚动窗口（交易日）
-        corr_threshold=0.75,  # 相关系数触发阈值
-        avoid_ratio=0.0,      # 触发时建仓比例（0.0=空仓，0.5=半仓）
-    )
+    # timing = StyleConvergenceTiming(
+    #     roll_window=5,        # 滚动窗口（交易日）
+    #     corr_threshold=0.75,  # 相关系数触发阈值
+    #     avoid_ratio=0.0,      # 触发时建仓比例（0.0=空仓，0.5=半仓）
+    # )
     sell = HoldNDaysSellStrategy(n=5)
 
     engine = BacktestEngine(strategy, loader, b_cfg, timing=timing, sell_strategy=sell)
