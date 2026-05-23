@@ -338,3 +338,85 @@ class BlindWindowTiming(BaseTimingStrategy):
         v = self._map.get(date_str, 1.0)
         import math
         return 1.0 if (v != v) else v  # NaN check: NaN != NaN
+
+
+class HybridTiming(BaseTimingStrategy):
+    """
+    盲窗口 + 风格趋同融合择时。
+
+    仓位矩阵（b=BlindWindow信号, s=StyleConvergence信号）：
+      b=1, s=1  →  1.0          双重确认，全仓
+      b=1, s=0  →  partial_style  StyleConvergence 预警趋同下行，主动降仓
+      b=0, s=1  →  partial_blind  BlindWindow 谨慎但无系统性下行，保留反弹仓位
+      b=0, s=0  →  0.0          双重回避，空仓
+
+    设计动机：
+      - BlindWindow  在单边熊市防守强，但其他行情上涨乏力（OR 触发过于保守）
+      - StyleConvergence 能识别反转最佳切入点，但下跌市场回撤偏大（AND 触发过于迟钝）
+      - 融合后：BlindWindow 保留主防守线；StyleConvergence 提供双向修正：
+          * BlindWindow 空仓但 StyleConvergence 无趋同信号 → 允许 partial_blind 仓位，
+            捕捉 BlindWindow 因低相关/低波动而错过的风格分化牛市行情
+          * BlindWindow 满仓但 StyleConvergence 检测到趋同下行 → 降至 partial_style，
+            在系统性下行早期阶段主动减少暴露
+
+    Parameters
+    ----------
+    small_file     : 小微盘指数日线 CSV（932000.CSI，需含 trade_date, close, pct_chg 列）
+    large_file     : 大中盘指数日线 CSV（000510.CSI）
+    signal_window  : BlindWindow 滚动窗口（corr/vol 计算，默认 7）
+    corr_pct       : BlindWindow 相关系数历史分位数阈值（默认 20）
+    vol_pct        : BlindWindow 波动率历史分位数阈值（默认 33）
+    rolling_window : BlindWindow 分位数计算用的历史样本数（默认 80）
+    roll_window    : StyleConvergence 滚动窗口（默认 5）
+    corr_threshold : StyleConvergence 相关系数触发阈值（默认 0.75）
+    partial_blind  : BlindWindow=避 & StyleConvergence=投时的仓位（默认 0.3）
+    partial_style  : BlindWindow=投 & StyleConvergence=避时的仓位（默认 0.5）
+    """
+
+    def __init__(
+        self,
+        small_file: str = 'data/raw/index_daily/932000.CSI.csv',
+        large_file: str = 'data/raw/index_daily/000510.CSI.csv',
+        signal_window: int = 7,
+        corr_pct: float = 20.0,
+        vol_pct: float = 33.0,
+        rolling_window: int = 80,
+        roll_window: int = 5,
+        corr_threshold: float = 0.75,
+        partial_blind: float = 0.3,
+        partial_style: float = 0.5,
+    ):
+        self._blind = BlindWindowTiming(
+            small_file=small_file,
+            large_file=large_file,
+            signal_window=signal_window,
+            corr_pct=corr_pct,
+            vol_pct=vol_pct,
+            rolling_window=rolling_window,
+        )
+        self._style = StyleConvergenceTiming(
+            small_file=small_file,
+            large_file=large_file,
+            roll_window=roll_window,
+            corr_threshold=corr_threshold,
+        )
+        self.partial_blind = partial_blind
+        self.partial_style = partial_style
+
+    def prepare(self, start_date: str, end_date: str) -> None:
+        self._blind.prepare(start_date, end_date)
+        self._style.prepare(start_date, end_date)
+
+    def get_position_ratio(self, date_str: str) -> float:
+        b = self._blind.get_position_ratio(date_str)
+        s = self._style.get_position_ratio(date_str)
+        b_invest = b >= 1.0
+        s_invest = s >= 1.0
+        if b_invest and s_invest:
+            return 1.0
+        elif b_invest:
+            return self.partial_style
+        elif s_invest:
+            return self.partial_blind
+        else:
+            return 0.0
