@@ -21,6 +21,10 @@ class BacktestConfig:
         # 初始资金（元）
         self.initial_capital: float = 1_000_000
 
+        # 模型强度过滤：top-1 score 低于此阈值时跳过建仓（视为模型失效）
+        # None 或 0 表示不过滤
+        self.min_score_threshold: float = 0.0
+
         # ---- 风控（预留接口，None 表示当前不启用）----
         # 个股止损阈值：当持仓浮亏达到此比例时触发清仓，如 -0.08 表示 8% 止损
         # 需在自定义 SellStrategy 中读取并使用，引擎本身不处理

@@ -307,14 +307,24 @@ class BacktestEngine:
                     # 仓位比例在买入时查询（而非信号生成时），确保能用最新的择时判断
                     t_ratio = self.timing.get_position_ratio(today) if self.timing else 1.0
                     if t_ratio > 0:
-                        invest = cash * t_ratio
-                        cash_spent, alias = self._execute_buys(today, invest, pending_buy, positions, price_index, trade_log, picks_log)
-                        cash -= cash_spent
-                        last_batch_cost = cash_spent
-                        batch_sell_proceeds = 0.0            # 新批次开始，重置累计卖出金额
-                        batch_log.append((today, alias))
-                        if positions:
-                            next_signal_idx = i + self.cfg.holding_period - 1
+                        # 模型强度过滤：top-1 score 低于阈值时跳过建仓
+                        top1_score = pending_buy['score'].iloc[0] if not pending_buy.empty else 0.0
+                        min_thr = self.cfg.min_score_threshold or 0.0
+                        if top1_score < min_thr:
+                            print(f"  模型强度不足（top1 score={top1_score:.6f} < {min_thr}），跳过建仓")
+                            next_signal_idx = i
+                        else:
+                            invest = cash * t_ratio
+                            cash_spent, alias = self._execute_buys(today, invest, pending_buy, positions, price_index, trade_log, picks_log)
+                            cash -= cash_spent
+                            last_batch_cost = cash_spent
+                            batch_sell_proceeds = 0.0            # 新批次开始，重置累计卖出金额
+                            batch_log.append((today, alias))
+                            if positions:
+                                next_signal_idx = i + self.cfg.holding_period - 1
+                    else:
+                        # 择时空仓：当天步骤⑤仍需生成信号（next_signal_idx = i），明天再判断择时
+                        next_signal_idx = i
                 # 无论本日是否买入，都清空待执行信号，防止下一轮持仓结束后用过期信号建仓
                 pending_buy = None
 
