@@ -1,10 +1,12 @@
 import os
 import time
 import pandas as pd
+from datetime import datetime
+from typing import Optional
 from data_api.tushareApi import TushareDataSource
 
 START_DATE = "20200101"
-END_DATE   = "20260518"
+END_DATE   = datetime.today().strftime('%Y%m%d')  # 动态取今日，避免日历截止过期
 
 
 class DownloadData:
@@ -35,6 +37,23 @@ class DownloadData:
     # ------------------------------------------------------------------ #
     #  工具方法                                                             #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _call_with_retry(fn, *args, max_retries: int = 5, base_sleep: float = 30.0, **kwargs):
+        """调用 fn(*args, **kwargs)，遇到频率超限时指数退避重试。"""
+        for attempt in range(max_retries):
+            try:
+                return fn(*args, **kwargs)
+            except Exception as e:
+                print(str(e))
+                msg = str(e)
+                if '频率超限' in msg or 'exceed' in msg.lower():
+                    wait = base_sleep * (2 ** attempt)
+                    print(f"\n  [限速] 等待 {wait:.0f}s 后重试（第 {attempt + 1}/{max_retries} 次）...")
+                    time.sleep(wait)
+                else:
+                    raise
+        raise RuntimeError(f"超过最大重试次数 {max_retries}，放弃。")
 
     @staticmethod
     def _ensure_dir(path: str) -> None:
@@ -101,7 +120,7 @@ class DownloadData:
             if df is None or df.empty:
                 continue
             df.to_csv(path, index=False)
-            time.sleep(0.1)
+            time.sleep(0.4)
 
     def moneyflow(self, start: str = START_DATE, end: str = END_DATE) -> None:
         """下载每个交易日的大中小单净流入数据。"""
@@ -116,7 +135,7 @@ class DownloadData:
             if df is None or df.empty:
                 continue
             df.to_csv(path, index=False)
-            time.sleep(0.2)
+            time.sleep(0.4)
 
     def margin_detail(self, start: str = START_DATE, end: str = END_DATE) -> None:
         """下载每个交易日的融资融券明细。"""
@@ -131,7 +150,7 @@ class DownloadData:
             if df is None or df.empty:
                 continue
             df.to_csv(path, index=False)
-            time.sleep(0.2)
+            time.sleep(0.4)
 
     def top_list(self, start: str = START_DATE, end: str = END_DATE) -> None:
         """下载每个交易日的龙虎榜数据。"""
@@ -153,7 +172,7 @@ class DownloadData:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _incremental_start(path: str, date_col: str) -> str | None:
+    def _incremental_start(path: str, date_col: str) -> Optional[str]:
         """
         读取已有文件中 date_col 列的最大值，返回其后一天作为增量起点。
         文件不存在或读取失败时返回 None（表示全量下载）。
@@ -172,7 +191,7 @@ class DownloadData:
             return None
 
     @staticmethod
-    def _append_and_save(path: str, existing_df: pd.DataFrame | None,
+    def _append_and_save(path: str, existing_df: Optional[pd.DataFrame],
                          new_df: pd.DataFrame, dedup_cols: list[str]) -> None:
         """合并新旧数据，按 dedup_cols 去重后写回文件。"""
         if existing_df is not None and not existing_df.empty:
@@ -196,12 +215,12 @@ class DownloadData:
             else:
                 fetch_start = inc_start
                 existing = pd.read_csv(path, dtype={'trade_date': str})
-            df = self.api.get_stock_data(code=ts_code, startdate=fetch_start, enddate=end)
+            df = self._call_with_retry(self.api.get_stock_data, code=ts_code, startdate=fetch_start, enddate=end)
+            time.sleep(0.4)
             if df is None or df.empty:
                 continue
             print(f"  stock_data {ts_code}  {fetch_start}~{end}  +{len(df)}行")
             self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'trade_date'])
-            time.sleep(0.1)
 
     def income(self, start: str = START_DATE, end: str = END_DATE) -> None:
         """下载每只股票的利润表，支持增量更新。"""
@@ -217,12 +236,13 @@ class DownloadData:
             else:
                 fetch_start = inc_start
                 existing = pd.read_csv(path, dtype={'ann_date': str})
-            df = self.api.get_income(code=ts_code, startdate=fetch_start, enddate=end)
+            df = self._call_with_retry(self.api.get_income, code=ts_code, startdate=fetch_start, enddate=end)
+            time.sleep(0.4)
             if df is None or df.empty:
                 continue
             print(f"  income {ts_code}  {fetch_start}~{end}  +{len(df)}行")
             self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'ann_date', 'end_date'])
-            time.sleep(0.4)
+            
 
     def balancesheet(self, start: str = START_DATE, end: str = END_DATE) -> None:
         """下载每只股票的资产负债表，支持增量更新。"""
@@ -238,12 +258,12 @@ class DownloadData:
             else:
                 fetch_start = inc_start
                 existing = pd.read_csv(path, dtype={'ann_date': str})
-            df = self.api.get_balancesheet(code=ts_code, startdate=fetch_start, enddate=end)
+            df = self._call_with_retry(self.api.get_balancesheet, code=ts_code, startdate=fetch_start, enddate=end)
+            time.sleep(0.4)
             if df is None or df.empty:
                 continue
             print(f"  balancesheet {ts_code}  {fetch_start}~{end}  +{len(df)}行")
             self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'ann_date', 'end_date'])
-            time.sleep(0.4)
 
     def cashflow(self, start: str = START_DATE, end: str = END_DATE) -> None:
         """下载每只股票的现金流量表，支持增量更新。"""
@@ -259,12 +279,12 @@ class DownloadData:
             else:
                 fetch_start = inc_start
                 existing = pd.read_csv(path, dtype={'ann_date': str})
-            df = self.api.get_cashflow(code=ts_code, startdate=fetch_start, enddate=end)
+            df = self._call_with_retry(self.api.get_cashflow, code=ts_code, startdate=fetch_start, enddate=end)
+            time.sleep(0.4)
             if df is None or df.empty:
                 continue
             print(f"  cashflow {ts_code}  {fetch_start}~{end}  +{len(df)}行")
             self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'ann_date', 'end_date'])
-            time.sleep(0.4)
 
     def index_daily(self, start: str = START_DATE, end: str = END_DATE) -> None:
         """下载 SZSE 全部指数的日线行情，支持增量更新。"""
@@ -282,30 +302,30 @@ class DownloadData:
             else:
                 fetch_start = inc_start
                 existing = pd.read_csv(path, dtype={'trade_date': str})
-            df = self.api.get_index_daily(ts_code=ts_code, startdate=fetch_start, enddate=end)
+            df = self._call_with_retry(self.api.get_index_daily, ts_code=ts_code, startdate=fetch_start, enddate=end)
+            time.sleep(0.4)
             if df is None or df.empty:
                 continue
             print(f"  index_daily {ts_code}  {fetch_start}~{end}  +{len(df)}行")
             self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'trade_date'])
-            time.sleep(0.4)
 
 
 if __name__ == '__main__':
     d = DownloadData()
 
     # ① 基础元数据（其他方法依赖这三个，必须先跑）
-    d.trade_cal()       # 交易日历（全量，从2010年起）
-    d.stock_list()      # 股票列表
-    d.index_basic()     # 指数基础信息
+    # d.trade_cal()       # 交易日历（全量，从2010年起）
+    # d.stock_list()      # 股票列表
+    # d.index_basic()     # 指数基础信息
 
-    # ② 按日期下载
-    d.daily_basic_data()
-    d.moneyflow()
-    d.margin_detail()
-    d.top_list()
+    # # ② 按日期下载
+    # d.daily_basic_data()
+    # d.moneyflow()
+    # d.margin_detail()
+    # d.top_list()
 
-    # ③ 按股票下载（数量多，耗时较长）
-    d.stock_data()
+    # # ③ 按股票下载（数量多，耗时较长）
+    # d.stock_data()
     d.income()
     d.balancesheet()
     d.cashflow()

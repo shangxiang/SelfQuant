@@ -39,6 +39,9 @@ class ElasticNetConfig:
             'dv_ttm_standard',          # 股息率（TTM）
             # 技术类
             'macd_standard',            # MACD
+            'K_standard',
+            'D_standard',
+            'J_standard',
             'rsi_standard',             # RSI
             'turnover_rate_x_standard', # 换手率
             'volume_ratio_standard',    # 量比
@@ -56,6 +59,12 @@ class ElasticNetConfig:
             'revenue_growth_yoy_standard',  # 营收同比增速
             'profit_growth_yoy_standard',   # 净利润同比增速
             'accruals_standard',            # 应计项目（盈利质量）
+            'mfi_standard',                 # 资金流量
+            'vwap_standard',                # 价格偏离
+            'close_to_vwap_ratio_standard', # 收盘价与 VWAP 偏离率
+            'mtm_margin_balance_change_standard',   # 融资余额动量
+            'big_order_ratio_standard',     # 大单净流入
+            'lhb_strength_5d_standard',     # 龙虎榜强度
             # Fama-French 风格因子
             'size_factor_standard',         # 规模因子（-ln 流通市值），直接 z-score
             'smb_squared_standard',         # 规模²，直接 z-score
@@ -190,12 +199,16 @@ class ElasticNetStrategy(BaseStrategy):
             # 样本量过少时，交叉验证结果不可靠，跳过该日
             return False
 
+        X = X.astype(np.float64)
+        y = y.astype(np.float64)
+        # n_jobs=1：单线程跑 CV，避免多进程时 Gram 矩阵浮点精度校验失败
+        # precompute='auto'（默认）：保留 Gram 矩阵缓存，坐标下降 O(p) 而非 O(n*p)
         model = ElasticNetCV(
             l1_ratio=self.cfg.l1_ratio_grid,
             cv=self.cfg.cv,
             max_iter=5000,
             random_state=42,
-            n_jobs=-1,   # 并行交叉验证，充分利用多核
+            n_jobs=1,
         )
         model.fit(X, y)
         raw_weights = model.coef_  # shape = (n_factors,)

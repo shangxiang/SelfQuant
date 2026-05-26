@@ -172,8 +172,13 @@ def financial_data_preprocess():
 def merge_basic_daily_data():
     """
     将每日截面数据（行情、基本面快照、融资融券、资金流、龙虎榜）按
-    (ts_code, trade_date) 合并为宽表，按股票拆分后保存到 data/series/。
+    (ts_code, trade_date) 合并为宽表，增量追加到 data/final_result.csv。
+
+    增量逻辑：读取 final_result.csv 中已有的最大 trade_date，
+    只加载各 raw 目录中日期更新的文件，合并后 append 并去重写回。
     """
+    import os
+
     basic_daily_data_list = [
         "stock_data",
         "daily_basic_data",
@@ -181,47 +186,111 @@ def merge_basic_daily_data():
         "moneyflow",
         "top_list",
     ]
+
+    out_path = "data/final_result.csv"
+
+    # 确定增量起点
+    existing_df = None
+    max_existing_date = None
+    if os.path.exists(out_path):
+        existing_df = pd.read_csv(out_path, dtype={'trade_date': str})
+        if 'trade_date' in existing_df.columns and not existing_df.empty:
+            max_existing_date = existing_df['trade_date'].max()
+            print(f"  final_result.csv 已有数据截止 {max_existing_date}，仅加载新增日期")
+
     final_result = None
     for section_name in basic_daily_data_list:
         all_daily = []
         for file in glob.glob(raw_data_path + section_name + "/*.csv"):
+            # 按日期下载的目录（daily_basic_data/moneyflow/margin_detail/top_list）
+            # 文件名格式为 YYYYMMDD.csv，可直接用文件名过滤
+            if max_existing_date is not None:
+                basename = os.path.splitext(os.path.basename(file))[0]
+                if basename.isdigit() and basename <= max_existing_date:
+                    continue
             df = pd.read_csv(file)
             df.drop(columns='Unnamed: 0', errors='ignore', inplace=True)
             all_daily.append(df)
 
         if not all_daily:
-            print(f"  跳过 {section_name}（无文件）")
+            print(f"  {section_name}：无新增文件，跳过")
+            # 增量模式下该 section 没有新数据，用空 DataFrame 占位保持 merge 链不断
+            if final_result is not None and max_existing_date is not None:
+                continue
+            # 全量模式下没有文件则真的跳过
             continue
 
         daily_df = pd.concat(all_daily, ignore_index=True)
+
+        # stock_data 按股票存储，文件名不是日期，需要按 trade_date 列过滤
+        if max_existing_date is not None and 'trade_date' in daily_df.columns:
+            daily_df['trade_date'] = daily_df['trade_date'].astype(str)
+            daily_df = daily_df[daily_df['trade_date'] > max_existing_date]
+
+        if daily_df.empty:
+            print(f"  {section_name}：无新增行，跳过")
+            continue
+
         daily_df = daily_df.set_index(['ts_code', 'trade_date']).sort_index()
-        # daily_df.to_csv(f"data/series/{section_name}.csv")
-        print(f"合并 {section_name} → {len(daily_df)} 行")
+        print(f"  合并 {section_name} → 新增 {len(daily_df)} 行")
 
         if final_result is None:
             final_result = daily_df
         else:
-            final_result = pd.merge(final_result, daily_df, how='left',
-                                    on=['ts_code', 'trade_date'])
+            final_result = pd.merge(final_result, daily_df, how='outer',
+                                    left_index=True, right_index=True)
         del daily_df
 
-    if final_result is not None:
-        final_result.to_csv("data/final_result.csv")
+    if final_result is None:
+        print("  无新增数据，final_result.csv 保持不变。")
+        return
+
+    # 合并新旧数据，按 (ts_code, trade_date) 去重
+    new_df = final_result.reset_index()
+    if existing_df is not None:
+        combined = pd.concat([existing_df, new_df], ignore_index=True)
+        combined['trade_date'] = combined['trade_date'].astype(str)
+        combined.drop_duplicates(subset=['ts_code', 'trade_date'], keep='last', inplace=True)
+        combined.sort_values(['ts_code', 'trade_date'], inplace=True)
+        combined.to_csv(out_path, index=False)
+        print(f"  final_result.csv 更新完成，共 {len(combined)} 行")
+    else:
+        new_df.to_csv(out_path, index=False)
+        print(f"  final_result.csv 全量写入，共 {len(new_df)} 行")
 
 
 def split_to_series_section(input_file_name: str):
     """
-    将宽表 final_result.csv 按股票代码拆分，每只股票保存为独立的时序 CSV。
-    输出到 data/series/<ts_code>.csv，供 FactorManager 逐只计算因子。
+    将宽表 final_result.csv 按股票代码拆分，增量追加到 data/series/<ts_code>.csv。
+    已存在的股票文件只追加新日期行；新股票直接创建文件。
     """
+    import os
     series_path = "data/series/"
-    df = pd.read_csv(input_file_name)
+
+    df = pd.read_csv(input_file_name, dtype={'trade_date': str})
     print("列：", df.columns.tolist())
+
+    # 确定每只股票已有的最大日期，只写入更新的行
     for ts_code, group in df.groupby('ts_code'):
+        out_file = f"{series_path}{ts_code}.csv"
         if 'trade_date' in group.columns:
             group = group.sort_values('trade_date')
-        group.to_csv(f"{series_path}{ts_code}.csv", index=False)
-        print(f"  已保存 {ts_code}")
+
+        if os.path.exists(out_file):
+            existing = pd.read_csv(out_file, dtype={'trade_date': str})
+            max_date = existing['trade_date'].max() if 'trade_date' in existing.columns else None
+            if max_date is not None:
+                new_rows = group[group['trade_date'] > max_date]
+                if new_rows.empty:
+                    continue
+                combined = pd.concat([existing, new_rows], ignore_index=True)
+                combined.sort_values('trade_date', inplace=True)
+                combined.to_csv(out_file, index=False)
+                print(f"  {ts_code} +{len(new_rows)} 行")
+                continue
+
+        group.to_csv(out_file, index=False)
+        print(f"  {ts_code} 新建")
 
 
 if __name__ == '__main__':

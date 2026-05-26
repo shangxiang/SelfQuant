@@ -16,6 +16,7 @@ alias 定义：alias = (第 top_n 名打分 - 全市场均分) / 全市场打分
 
 import sys
 import os
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -35,6 +36,10 @@ plt.rcParams['axes.unicode_minus'] = False
 ALIAS_WARN  = 2.5   # 超过此值视为高风险区
 ALIAS_CRIT  = 3.0   # 超过此值视为极端区
 ROLL_WINDOW = 10    # 滚动相关窗口（期数）
+
+# score 信号质量阈值：top-N 持仓的 score_max 低于此值视为"无信号"
+SCORE_LOW_THRESH  = 0.09   # 极低：模型几乎无区分力
+SCORE_HIGH_THRESH = 0.15   # 较高：模型有一定置信度
 
 PERIOD_BINS   = ['2025-01-01', '2025-06-30', '2025-12-31', '2026-12-31']
 PERIOD_LABELS = ['2025H1', '2025H2', '2026']
@@ -364,6 +369,209 @@ def plot_distribution(df: pd.DataFrame, save_path: str) -> None:
 
 
 # ------------------------------------------------------------------ #
+#  图表 3 — score 信号质量分析                                           #
+# ------------------------------------------------------------------ #
+
+def load_score_data(task_dir: str) -> Optional[pd.DataFrame]:
+    """
+    读取 daily_picks.csv，聚合为每期 score 统计。
+    返回列：trade_date, score_max, score_mean, score_spread, score_q10。
+    如果文件不存在返回 None。
+    """
+    path = os.path.join(task_dir, 'daily_picks.csv')
+    if not os.path.exists(path):
+        return None
+    picks = pd.read_csv(path)
+    picks['date'] = pd.to_datetime(picks['date'].astype(str), format='%Y%m%d')
+    agg = picks.groupby('date')['score'].agg(
+        score_max='max',
+        score_mean='mean',
+        score_min='min',
+        score_std='std',
+    ).reset_index().rename(columns={'date': 'trade_date'})
+    # top1 与 topN 末位的分差，反映内部区分度
+    agg['score_spread'] = agg['score_max'] - agg['score_min']
+    return agg
+
+
+def plot_score_quality(df: pd.DataFrame, score_df: pd.DataFrame, save_path: str) -> None:
+    """
+    图3：用持仓 score 分布判断当期信号质量。
+
+    layout 2×2：
+      左上 — score_max 时序 + 阈值线 + batch_profit 叠加
+      右上 — score_max 分档 vs 收益分布（箱线图）
+      左下 — score_max vs batch_return 散点 + 回归
+      右下 — 高/低 score 期条件统计对比
+    """
+    merged = pd.merge(df, score_df, on='trade_date', how='inner')
+    if merged.empty:
+        print('score 数据与 batch 数据无法对齐，跳过图3。')
+        return
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 11))
+    fig.patch.set_facecolor('#f8f8f8')
+    fig.suptitle('Score 信号质量分析（持仓打分分布 → 当期可信度判断）',
+                 fontsize=14, fontweight='bold', y=1.01)
+
+    x      = np.arange(len(merged))
+    x_lbl  = [d.strftime('%Y-%m-%d') for d in merged['trade_date']]
+    tick_step = max(1, len(x) // 15)
+
+    # ── 左上：score_max 时序 + 阈值 + batch_profit 柱 ─────────────── #
+    ax = axes[0, 0]
+    ax.plot(x, merged['score_max'], color='#4575b4', linewidth=1.8,
+            marker='o', markersize=3.5, zorder=4, label='score_max')
+    ax.plot(x, merged['score_mean'], color='#91bfdb', linewidth=1.2,
+            linestyle='--', zorder=3, label='score_mean')
+    ax.axhline(SCORE_LOW_THRESH,  color='#d73027', linewidth=1.3,
+               linestyle='--', label=f'低阈值 {SCORE_LOW_THRESH}（无信号）')
+    ax.axhline(SCORE_HIGH_THRESH, color='#4dac26', linewidth=1.3,
+               linestyle='--', label=f'高阈值 {SCORE_HIGH_THRESH}（置信）')
+    ax.fill_between(x, 0, merged['score_max'],
+                    where=(merged['score_max'] < SCORE_LOW_THRESH),
+                    alpha=0.20, color='#d73027', label='无信号区')
+    ax.fill_between(x, SCORE_HIGH_THRESH, merged['score_max'],
+                    where=(merged['score_max'] >= SCORE_HIGH_THRESH),
+                    alpha=0.15, color='#4dac26', label='置信区')
+    ax.set_ylabel('score', fontsize=10, color='#4575b4')
+    ax.set_ylim(bottom=0)
+
+    axr = ax.twinx()
+    colors = ['#2ca02c' if v >= 0 else '#d62728' for v in merged['trade_profit']]
+    axr.bar(x, merged['trade_profit'] * 100, color=colors, width=0.6,
+            alpha=0.35, zorder=2)
+    axr.set_ylabel('批次收益 (%)', fontsize=9, color='#555555')
+    axr.axhline(0, color='black', linewidth=0.6)
+    axr.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.1f%%'))
+
+    ax.set_xticks(x[::tick_step])
+    ax.set_xticklabels(x_lbl[::tick_step], rotation=45, ha='right', fontsize=7.5)
+    ax.set_title('score_max / score_mean 时序\n红色背景=无信号区（<{:.2f}）；绿色背景=置信区（≥{:.2f}）'.format(
+                 SCORE_LOW_THRESH, SCORE_HIGH_THRESH),
+                 fontsize=10, fontweight='bold', pad=8)
+    ax.legend(loc='upper left', fontsize=7.5, framealpha=0.85, ncol=3)
+    ax.set_facecolor('#f0f0f0')
+    ax.grid(axis='y', color='white', linewidth=0.5)
+
+    # ── 右上：score_max 分档箱线图 ──────────────────────────────────── #
+    ax = axes[0, 1]
+    q_lo = merged['score_max'].quantile(0.25)
+    q_hi = merged['score_max'].quantile(0.75)
+    bins_s   = [0, SCORE_LOW_THRESH, q_lo, q_hi, 1.0]
+    labels_s = [f'<{SCORE_LOW_THRESH}\n（无信号）',
+                f'{SCORE_LOW_THRESH}~{q_lo:.3f}',
+                f'{q_lo:.3f}~{q_hi:.3f}',
+                f'>{q_hi:.3f}\n（高置信）']
+    merged['score_bin'] = pd.cut(merged['score_max'], bins=bins_s,
+                                  labels=labels_s, include_lowest=True)
+    box_data  = [merged[merged['score_bin'] == lbl]['trade_profit'].values * 100
+                 for lbl in labels_s]
+    valid     = [(lbl, d) for lbl, d in zip(labels_s, box_data) if len(d) > 0]
+    v_lbls    = [v[0] for v in valid]
+    v_data    = [v[1] for v in valid]
+
+    bp = ax.boxplot(v_data, patch_artist=True, notch=False,
+                    medianprops=dict(color='black', linewidth=1.5))
+    seg_colors = ['#d73027', '#fc8d59', '#91bfdb', '#4dac26']
+    for patch, c in zip(bp['boxes'], seg_colors[:len(v_lbls)]):
+        patch.set_facecolor(c); patch.set_alpha(0.72)
+    for i, (lbl, d) in enumerate(zip(v_lbls, v_data), 1):
+        ax.text(i, ax.get_ylim()[0] + 0.3,
+                f'n={len(d)}\n{np.mean(d):.2f}%',
+                ha='center', va='bottom', fontsize=7.5)
+    ax.axhline(0, color='black', linewidth=0.8)
+    ax.set_xticks(range(1, len(v_lbls) + 1))
+    ax.set_xticklabels(v_lbls, fontsize=8.5)
+    ax.set_ylabel('批次收益 (%)', fontsize=10)
+    ax.set_title('score_max 分档 vs 批次收益分布\n红→绿：无信号→高置信',
+                 fontsize=10, fontweight='bold', pad=8)
+    ax.set_facecolor('#f0f0f0')
+    ax.grid(axis='y', color='white', linewidth=0.5)
+
+    # ── 左下：score_max vs batch_return 散点 ────────────────────────── #
+    ax = axes[1, 0]
+    for period, g in merged.groupby('period', observed=True):
+        c = PERIOD_COLORS.get(str(period), '#888888')
+        ax.scatter(g['score_max'], g['trade_profit'] * 100,
+                   color=c, alpha=0.78, s=55, label=str(period), zorder=3)
+    # 回归线
+    sl, ic, _, _, _ = linregress(merged['score_max'], merged['trade_profit'] * 100)
+    xf = np.linspace(merged['score_max'].min(), merged['score_max'].max(), 100)
+    ax.plot(xf, sl * xf + ic, color='#333333', linewidth=1.5,
+            linestyle='--', label='回归线')
+    rs, _ = spearmanr(merged['score_max'], merged['trade_profit'])
+    ax.text(0.97, 0.97, f'Spearman r = {rs:.3f}',
+            transform=ax.transAxes, ha='right', va='top', fontsize=9,
+            bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.8))
+    ax.axhline(0, color='black', linewidth=0.8)
+    ax.axvline(SCORE_LOW_THRESH,  color='#d73027', linewidth=1.1,
+               linestyle='--', label=f'低阈值 {SCORE_LOW_THRESH}')
+    ax.axvline(SCORE_HIGH_THRESH, color='#4dac26', linewidth=1.1,
+               linestyle='--', label=f'高阈值 {SCORE_HIGH_THRESH}')
+    ax.set_xlabel('score_max（当期最高打分）', fontsize=10)
+    ax.set_ylabel('批次收益 (%)', fontsize=10)
+    ax.set_title('score_max vs 批次收益（按时段着色）',
+                 fontsize=10, fontweight='bold', pad=8)
+    ax.legend(fontsize=8, framealpha=0.85, loc='upper left')
+    ax.set_facecolor('#f0f0f0')
+    ax.grid(color='white', linewidth=0.5)
+
+    # ── 右下：高/低 score 期的条件统计 ──────────────────────────────── #
+    ax = axes[1, 1]
+    thresholds = np.linspace(
+        merged['score_max'].quantile(0.05),
+        merged['score_max'].quantile(0.90),
+        30,
+    )
+    win_above, win_below, ret_above, ret_below, n_above = [], [], [], [], []
+    for thr in thresholds:
+        above = merged[merged['score_max'] >= thr]
+        below = merged[merged['score_max'] <  thr]
+        win_above.append(above['win'].mean() if len(above) else np.nan)
+        win_below.append(below['win'].mean() if len(below) else np.nan)
+        ret_above.append(above['trade_profit'].mean() if len(above) else np.nan)
+        ret_below.append(below['trade_profit'].mean() if len(below) else np.nan)
+        n_above.append(len(above))
+
+    ax.plot(thresholds, np.array(win_above) * 100, color='#4dac26',
+            linewidth=1.8, label='score≥阈值 胜率')
+    ax.plot(thresholds, np.array(win_below) * 100, color='#d73027',
+            linewidth=1.8, linestyle='--', label='score<阈值 胜率')
+    ax.axhline(50, color='black', linewidth=0.7, linestyle=':')
+    ax.axvline(SCORE_LOW_THRESH,  color='#d73027', linewidth=1.1,
+               linestyle='--', alpha=0.7)
+    ax.axvline(SCORE_HIGH_THRESH, color='#4dac26', linewidth=1.1,
+               linestyle='--', alpha=0.7)
+
+    axr2 = ax.twinx()
+    axr2.plot(thresholds, np.array(ret_above) * 100, color='#2ca02c',
+              linewidth=1.4, linestyle=':', label='score≥阈值 均收益')
+    axr2.plot(thresholds, np.array(ret_below) * 100, color='#d62728',
+              linewidth=1.4, linestyle=':', label='score<阈值 均收益')
+    axr2.axhline(0, color='gray', linewidth=0.5)
+    axr2.set_ylabel('均收益 (%)', fontsize=9, color='#555555')
+    axr2.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.2f%%'))
+
+    ax.set_xlabel('score_max 阈值', fontsize=10)
+    ax.set_ylabel('胜率 (%)', fontsize=10)
+    ax.set_title('阈值扫描：score_max ≥ 阈值 vs < 阈值\n实线=胜率；虚点=均收益',
+                 fontsize=10, fontweight='bold', pad=8)
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter('%.0f%%'))
+    lines1 = ax.get_lines() + axr2.get_lines()
+    labels1 = [l.get_label() for l in lines1]
+    ax.legend(lines1, labels1, fontsize=8, framealpha=0.85, loc='lower left', ncol=2)
+    ax.set_facecolor('#f0f0f0')
+    ax.grid(axis='y', color='white', linewidth=0.5)
+
+    fig.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight',
+                facecolor=fig.get_facecolor())
+    print(f'图3已保存 → {save_path}')
+    plt.show()
+
+
+# ------------------------------------------------------------------ #
 #  入口                                                                #
 # ------------------------------------------------------------------ #
 
@@ -383,6 +591,12 @@ def main():
     out_dir = os.path.abspath(task_dir)
     plot_timeseries(df,   os.path.join(out_dir, 'alias_timeseries.png'))
     plot_distribution(df, os.path.join(out_dir, 'alias_distribution.png'))
+
+    score_df = load_score_data(task_dir)
+    if score_df is not None:
+        plot_score_quality(df, score_df, os.path.join(out_dir, 'score_quality.png'))
+    else:
+        print('未找到 daily_picks.csv，跳过图3（score 信号质量分析）。')
 
 
 if __name__ == '__main__':

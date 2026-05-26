@@ -566,6 +566,102 @@ class FactorManager:
         return df[['vol_mom']]
 
     # ------------------------------------------------------------------ #
+    #  中短期动量 / 技术形态因子                                             #
+    # ------------------------------------------------------------------ #
+
+    def ret_10d(self, close_col='close_x'):
+        """10 日价格动量：捕捉短期延续效应，补充 reversal_5d 与 momentum_12_1 之间的空白。"""
+        df = self.df
+        df['ret_10d'] = df[close_col].pct_change(periods=10).fillna(0)
+        return df[['ret_10d']]
+
+    def ret_20d(self, close_col='close_x'):
+        """20 日价格动量：月度级别趋势，与 reversal 和 12-1 动量互补。"""
+        df = self.df
+        df['ret_20d'] = df[close_col].pct_change(periods=20).fillna(0)
+        return df[['ret_20d']]
+
+    def ret_60d(self, close_col='close_x'):
+        """60 日价格动量：季度级别中期趋势。"""
+        df = self.df
+        df['ret_60d'] = df[close_col].pct_change(periods=60).fillna(0)
+        return df[['ret_60d']]
+
+    def dist_52w_high(self, close_col='close_x', window=252):
+        """
+        距 52 周高点的距离：(收盘价 / 252日最高收盘价) - 1，值域 (-∞, 0]。
+        接近 52 周高点的股票往往处于强势趋势（George & Hwang 2004 动量解释）。
+        """
+        df = self.df
+        rolling_max = df[close_col].rolling(window=window, min_periods=20).max()
+        df['dist_52w_high'] = (df[close_col] / rolling_max.replace(0, np.nan) - 1).fillna(0)
+        return df[['dist_52w_high']]
+
+    def close_ma20_ratio(self, close_col='close_x', window=20):
+        """
+        收盘价相对 20 日均线偏离度：(close / MA20) - 1。
+        正值表示价格在均线上方（偏强），负值在下方（偏弱），捕捉短期均值回归或趋势延续。
+        """
+        df = self.df
+        ma20 = df[close_col].rolling(window=window, min_periods=5).mean()
+        df['close_ma20_ratio'] = (df[close_col] / ma20.replace(0, np.nan) - 1).fillna(0)
+        return df[['close_ma20_ratio']]
+
+    def up_day_ratio_20(self, close_col='close_x', window=20):
+        """
+        20 日上涨天数占比：滚动 20 日内收盘价上涨的交易日比例。
+        衡量趋势一致性，区别于单纯的累计涨幅（避免大涨小跌噪音）。
+        """
+        df = self.df
+        up_flag = (df[close_col].diff() > 0).astype(float)
+        df['up_day_ratio_20'] = up_flag.rolling(window=window, min_periods=5).mean().fillna(0)
+        return df[['up_day_ratio_20']]
+
+    def vol_price_corr_20d(self, close_col='close_x', vol_col='vol', window=20):
+        """
+        量价相关性（20 日）：价格日收益率与成交量日变化率的滚动相关系数。
+        正值（量价齐升/同步下跌）通常为趋势延续信号；负值（量价背离）暗示反转。
+        """
+        df = self.df
+        price_ret = df[close_col].pct_change()
+        vol_chg   = df[vol_col].pct_change()
+        df['vol_price_corr_20d'] = price_ret.rolling(window=window, min_periods=10).corr(vol_chg).fillna(0)
+        return df[['vol_price_corr_20d']]
+
+    def adx(self, high_col='high', low_col='low', close_col='close_x', period=14):
+        """
+        平均趋向指数（ADX）：Wilder 方法，衡量趋势强度（不含方向）。
+        ADX > 25 通常认为趋势显著；<20 为盘整。
+        使用 EWM（alpha=1/period）近似 Wilder 平滑，与标准定义等价。
+        """
+        df = self.df
+        high, low, close = df[high_col], df[low_col], df[close_col]
+        prev_close = close.shift(1)
+
+        tr = pd.concat([
+            (high - low),
+            (high - prev_close).abs(),
+            (low  - prev_close).abs(),
+        ], axis=1).max(axis=1)
+
+        up_move   = high - high.shift(1)
+        down_move = low.shift(1) - low
+
+        plus_dm  = pd.Series(0.0, index=df.index)
+        minus_dm = pd.Series(0.0, index=df.index)
+        plus_dm[(up_move > down_move) & (up_move > 0)]     = up_move
+        minus_dm[(down_move > up_move) & (down_move > 0)]  = down_move
+
+        alpha = 1.0 / period
+        atr      = tr.ewm(alpha=alpha, adjust=False).mean()
+        plus_di  = 100 * plus_dm.ewm(alpha=alpha, adjust=False).mean() / atr.replace(0, np.nan)
+        minus_di = 100 * minus_dm.ewm(alpha=alpha, adjust=False).mean() / atr.replace(0, np.nan)
+
+        dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+        df['adx'] = dx.ewm(alpha=alpha, adjust=False).mean().fillna(0)
+        return df[['adx']]
+
+    # ------------------------------------------------------------------ #
     #  统一计算入口                                                         #
     # ------------------------------------------------------------------ #
 
@@ -604,6 +700,10 @@ class FactorManager:
                 # 高阶/交叉因子：依赖上方 FF 因子列已写入 df，必须置于其后
                 self.smb_squared, self.smb_mom, self.smb_squared_mom,
                 self.hml_rmw, self.smb_hml, self.vol_mom,
+                # 中短期动量 / 技术形态因子
+                self.ret_10d, self.ret_20d, self.ret_60d,
+                self.dist_52w_high, self.close_ma20_ratio,
+                self.up_day_ratio_20, self.vol_price_corr_20d, self.adx,
             ]
         else:
             calcu_list = []

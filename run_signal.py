@@ -60,14 +60,35 @@ RUN_STANDARDIZE = True
 
 
 def _get_latest_trade_date() -> str:
-    """从本地交易日历读取距今最近的交易日（is_open=1）。"""
-    cal = pd.read_csv('data/raw/trade_cal.csv', dtype={'cal_date': str})
-    cal = cal[cal['is_open'] == 1]
+    """
+    返回距今最近的交易日（is_open=1）。
+
+    优先通过 Tushare API 获取最新日历，确保日历不过期：
+    - 若日历最近一日是今天 → 返回今天（今天是交易日）
+    - 若日历最近一日不是今天 → 返回日历里的最后一天（今天是非交易日）
+    API 调用失败时回落到本地 trade_cal.csv。
+    """
     today = datetime.today().strftime('%Y%m%d')
-    past = cal[cal['cal_date'] <= today].sort_values('cal_date')
-    if past.empty:
-        raise RuntimeError('交易日历中找不到今日或之前的交易日，请先更新交易日历。')
-    return past['cal_date'].iloc[-1]
+
+    def _latest_from(cal_df: pd.DataFrame) -> str:
+        open_days = cal_df[cal_df['is_open'] == 1]
+        past = open_days[open_days['cal_date'] <= today].sort_values('cal_date')
+        if past.empty:
+            raise RuntimeError('交易日历中找不到今日或之前的交易日，请先更新交易日历。')
+        return past['cal_date'].iloc[-1]
+
+    try:
+        from data_api.tushareApi import TushareDataSource
+        api = TushareDataSource()
+        # is_open='' 拉取全部日期（含非交易日），用于正确判断今天是否是交易日
+        df = api.get_trade_calender(startdate='20200101', enddate=today, is_open='')
+        df['cal_date'] = df['cal_date'].astype(str)
+        return _latest_from(df)
+    except Exception:
+        pass
+
+    cal = pd.read_csv('data/raw/trade_cal.csv', dtype={'cal_date': str})
+    return _latest_from(cal)
 
 
 def _get_next_trade_date(t: str) -> Optional[str]:
@@ -147,8 +168,8 @@ def step_standardize() -> None:
     """截面化 + 标准化（tools）。"""
     print('\n[4/6] 截面化 + 标准化（tools）')
     from tools import series_to_section, standardize, section_duplicates
-    series_to_section()
-    standardize()
+    series_to_section(incremental=True)
+    standardize(incremental=True)
     section_duplicates()
     print('  标准化完成。')
 
@@ -277,23 +298,23 @@ def main() -> None:
         t1_date = dt.strftime('%Y%m%d')
         print(f'  日历不足，T+1 估算为 {t1_date}（跳过周末，未排除节假日）')
 
-    # needs_update = (local_end is None) or (local_end < t_date)
-    # if not needs_update:
-    #     print('\n本地数据已是最新，跳过数据更新步骤。')
+    needs_update = (local_end is None) or (local_end < t_date)
+    if not needs_update:
+        print('\n本地数据已是最新，跳过数据更新步骤。')
 
     # if RUN_DOWNLOAD and needs_update:
     #     step_download(t_date)
 
-    # if RUN_MERGE and needs_update:
-    #     step_merge()
+    if RUN_MERGE and needs_update:
+        step_merge()
 
-    # if RUN_FACTORS and needs_update:
-    #     step_factors()
+    if RUN_FACTORS and needs_update:
+        step_factors()
 
-    # if RUN_STANDARDIZE and needs_update:
-    #     step_standardize()
+    if RUN_STANDARDIZE and needs_update:
+        step_standardize()
 
-    step_generate_signals(t_date, t1_date)
+    # step_generate_signals(t_date, t1_date)
 
 
 if __name__ == '__main__':

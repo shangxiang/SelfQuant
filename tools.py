@@ -1,16 +1,16 @@
-import multiprocessing
 import numpy as np
 import pandas as pd
 import glob
 import statsmodels.api as sm
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
-def series_to_section(colume_list=None):
+def series_to_section(colume_list=None, incremental: bool = False):
     """
     将 data/series/ 下按股票存储的时序 CSV 转换为按日期存储的截面 CSV，
     输出到 data/section/<trade_date>.csv。
+
+    incremental=True 时跳过 data/section/ 下已存在同名文件的日期，只写新日期。
     """
     series_path = "data/series/"
     final_result = []
@@ -27,10 +27,12 @@ def series_to_section(colume_list=None):
 
     section_path = "data/section/"
     for trade_date, group in final_result.groupby("trade_date"):
+        output_file_name = section_path + str(trade_date) + ".csv"
+        if incremental and os.path.exists(output_file_name):
+            continue
         group = group.sort_values("ts_code") if "ts_code" in group.columns else group
         # 同一交易日同一股票只保留第一条
         group = group.drop_duplicates(subset="ts_code", keep='first', ignore_index=True)
-        output_file_name = section_path + str(trade_date) + ".csv"
         group.to_csv(output_file_name, index=False)
         print("已保存", str(trade_date))
 
@@ -59,72 +61,15 @@ def neutralize_one_day(df, factor_name, mv_col='total_mv', ind_col='industry'):
     return result
 
 
-def _standardize_one_file(args: tuple) -> str:
-    """处理单个截面文件的缩尾→中性化→标准化，返回文件路径。"""
-    file, stock_info_df, basic_column_list, should_neutralize = args
-
-    def winsorize_series(s, lower_perc=0.01, upper_perc=0.99):
-        return s.clip(s.quantile(lower_perc), s.quantile(upper_perc))
-
-    df = pd.read_csv(file)
-
-    for col in ('industry', 'industry_x', 'industry_y'):
-        if col in df.columns:
-            df.drop(col, axis=1, inplace=True)
-    df = df.merge(stock_info_df[['ts_code', 'industry']], on='ts_code', how='left')
-
-    for fac in should_neutralize:
-        if fac in df.columns:
-            df[fac] = winsorize_series(df[fac])
-
-    neutralized_cols = {}
-    for fac in should_neutralize:
-        if fac not in df.columns:
-            continue
-        if fac + '_neutral' in df.columns:
-            continue
-        if df[fac].isna().all():
-            neutralized_cols[fac + '_neutral'] = 0
-            continue
-        neutralized_cols[fac + '_neutral'] = neutralize_one_day(
-            df, factor_name=fac, mv_col='total_mv', ind_col='industry'
-        )
-    if neutralized_cols:
-        df = pd.concat([df, pd.DataFrame(neutralized_cols, index=df.index)], axis=1)
-
-    columns = df.columns.tolist()
-    need_standardize_columns = [c for c in columns if c not in basic_column_list]
-    new_columns = {}
-    for col in need_standardize_columns:
-        if '_standard' in col:
-            continue
-        std = df[col].std()
-        if std == 0 or pd.isna(std):
-            continue
-        if '_neutral' in col:
-            new_columns[col.replace('_neutral', '_standard')] = (df[col] - df[col].mean()) / std
-        elif col + '_neutral' not in columns:
-            new_columns[col + '_standard'] = (df[col] - df[col].mean()) / std
-
-    if new_columns:
-        df = pd.concat([df, pd.DataFrame(new_columns, index=df.index)], axis=1)
-
-    df.to_csv(file, index=False)
-    return file
-
-
-def standardize():
+def standardize(incremental: bool = False):
     """
     对 data/section/ 下每张截面 CSV 做三步处理：
       1. 缩尾去极值（1%~99% 百分位截断）
       2. 行业+市值中性化（OLS 残差），中性化后的列命名为 <factor>_neutral
       3. Z-score 标准化，最终列命名为 <factor>_standard
 
-    说明：
-      - should_neutralize 中的因子先中性化再标准化
-      - 不在 should_neutralize 也不在 basic_column_list 的因子直接 z-score 标准化
-      - size_factor / smb_squared 是市值的直接函数，中性化会归零，故不放入中性化列表，
-        走直接 z-score 标准化路径
+    incremental=True 时，若文件中已包含 should_neutralize 所有列对应的
+    _standard 列，则跳过该文件。
     """
 
     stock_info_df = pd.read_csv('data/raw/stock_list/stock_list.csv')
@@ -156,24 +101,75 @@ def standardize():
         'revenue_growth_yoy', 'profit_growth_yoy', 'accruals',
         'asset_growth_yoy', 'value_factor', 'cma_factor', 'momentum_12_1',
         'smb_mom', 'smb_squared_mom', 'hml_rmw', 'smb_hml', 'vol_mom',
+        # 中短期动量 / 技术形态因子
+        'ret_10d', 'ret_20d', 'ret_60d',
+        'dist_52w_high', 'close_ma20_ratio',
+        'up_day_ratio_20', 'vol_price_corr_20d', 'adx',
     ]
 
-    section_path = 'data/section/'
-    files = glob.glob(section_path + '*.csv')
-    total = len(files)
+    def winsorize_series(s, lower_perc=0.01, upper_perc=0.99):
+        return s.clip(s.quantile(lower_perc), s.quantile(upper_perc))
 
-    n_workers = max(1, multiprocessing.cpu_count() - 1)
-    completed = 0
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        task_args = [(f, stock_info_df, basic_column_list, should_neutralize) for f in files]
-        futures = {executor.submit(_standardize_one_file, a): a[0] for a in task_args}
-        for future in as_completed(futures):
-            completed += 1
-            try:
-                result = future.result()
-                print(f'\r标准化 {completed}/{total}', end='', flush=True)
-            except Exception as e:
-                print(f'\n  ✗ {futures[future]}: {e}')
+    section_path = 'data/section/'
+    all_files = sorted(glob.glob(section_path + '*.csv'))
+    if not all_files:
+        print('  无截面文件，跳过。')
+        return
+
+    total = len(all_files)
+    for i, file in enumerate(all_files):
+        df = pd.read_csv(file)
+
+        if incremental:
+            existing = set(df.columns)
+            needed = {f + '_standard' for f in should_neutralize}
+            if needed.issubset(existing):
+                print(f'\r  跳过 {i + 1}/{total}', end='', flush=True)
+                continue
+
+        for col in ('industry', 'industry_x', 'industry_y'):
+            if col in df.columns:
+                df.drop(col, axis=1, inplace=True)
+        df = df.merge(stock_info_df[['ts_code', 'industry']], on='ts_code', how='left')
+
+        for fac in should_neutralize:
+            if fac in df.columns:
+                df[fac] = winsorize_series(df[fac])
+
+        neutralized_cols = {}
+        for fac in should_neutralize:
+            if fac not in df.columns:
+                continue
+            if fac + '_neutral' in df.columns:
+                continue
+            if df[fac].isna().all():
+                neutralized_cols[fac + '_neutral'] = 0
+                continue
+            neutralized_cols[fac + '_neutral'] = neutralize_one_day(
+                df, factor_name=fac, mv_col='total_mv', ind_col='industry'
+            )
+        if neutralized_cols:
+            df = pd.concat([df, pd.DataFrame(neutralized_cols, index=df.index)], axis=1)
+
+        columns = df.columns.tolist()
+        need_standardize_columns = [c for c in columns if c not in basic_column_list]
+        new_columns = {}
+        for col in need_standardize_columns:
+            if '_standard' in col:
+                continue
+            std = df[col].std()
+            if std == 0 or pd.isna(std):
+                continue
+            if '_neutral' in col:
+                new_columns[col.replace('_neutral', '_standard')] = (df[col] - df[col].mean()) / std
+            elif col + '_neutral' not in columns:
+                new_columns[col + '_standard'] = (df[col] - df[col].mean()) / std
+
+        if new_columns:
+            df = pd.concat([df, pd.DataFrame(new_columns, index=df.index)], axis=1)
+
+        df.to_csv(file, index=False)
+        print(f'\r  标准化 {i + 1}/{total}', end='', flush=True)
     print()
 
 
