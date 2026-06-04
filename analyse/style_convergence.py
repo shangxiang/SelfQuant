@@ -40,7 +40,7 @@ LARGE_NAME  = '中证500（大中盘）'
 SMALL_COLOR = '#d73027'
 LARGE_COLOR = '#4575b4'
 
-ROLL_WINDOW = 5    # 滚动相关窗口（交易日）
+ROLL_WINDOW = 10    # 滚动相关窗口（交易日）
 
 # 相关性分区阈值：用于背景着色和统计
 CORR_HIGH   = 0.6   # 高度趋同

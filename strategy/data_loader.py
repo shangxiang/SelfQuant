@@ -57,7 +57,13 @@ class DataLoader:
         # 合并 stock_list 的 name 列（name_y），用于识别 ST/退市股
         # 截面 CSV 自身已有 name 列（name_x），两者都保留
         df = df.merge(self.stock_df[["ts_code", "name"]], on="ts_code", how='inner')
-        df = df[~df['name_y'].str.contains('ST', na=False)]
+
+        if getattr(self.cfg, 'filter_st', True):
+            df = df[~df['name_y'].str.contains('ST', na=False)]
+
+        min_mv = getattr(self.cfg, 'min_mv', None)
+        if min_mv is not None and 'total_mv' in df.columns:
+            df = df[df['total_mv'].fillna(0) >= min_mv]
 
         self.cache[date_str] = df
         return df

@@ -44,7 +44,7 @@ class HoldNDaysSellStrategy(BaseSellStrategy):
             # held = 从买入日到今日经过的交易日数（今日 - 买入日，以索引差计）
             held = today_idx - all_dates.index(buy_date)
             result[pos['ts_code']] = 0.0 if held >= self.n else 1.0
-            if (current_price - buy_price) / buy_price < -0.05:
-                result[pos['ts_code']] = 0.0
+            # if (current_price - buy_price) / buy_price < -0.05:
+            #     result[pos['ts_code']] = 0.0
 
         return result

@@ -662,6 +662,127 @@ class FactorManager:
         return df[['adx']]
 
     # ------------------------------------------------------------------ #
+    #  高频痕迹因子                                                         #
+    # ------------------------------------------------------------------ #
+
+    def turnover_amplitude_ratio(self, turnover_col='turnover_rate_x',
+                                  high_col='high', low_col='low', window=20):
+        """
+        换手率振幅比：换手率 / (最高价/最低价 - 1) 的20日均值。
+        高频刷单放大成交但压缩价格波动，该比率异常放大是做市算法的典型痕迹。
+        振幅为0时跳过，避免除零。
+        """
+        df = self.df
+        amplitude = (df[high_col] / df[low_col].replace(0, np.nan) - 1).replace(0, np.nan)
+        daily_ratio = df[turnover_col] / amplitude
+        df['turnover_amplitude_ratio'] = (
+            daily_ratio.rolling(window=window, min_periods=10).mean().fillna(0)
+        )
+        return df[['turnover_amplitude_ratio']]
+
+    def long_shadow_freq(self, open_col='open', high_col='high',
+                          low_col='low', close_col='close_x', window=20):
+        """
+        长影线频率：过去20日出现长影线（上/下影线 > 实体×3）的天数占比。
+        高频算法试探盘口深度后迅速撤退，在日K线上留下极长影线。
+        """
+        df = self.df
+        body         = (df[close_col] - df[open_col]).abs()
+        upper_shadow = df[high_col] - df[[open_col, close_col]].max(axis=1)
+        lower_shadow = df[[open_col, close_col]].min(axis=1) - df[low_col]
+        long_shadow  = (upper_shadow > body * 3) | (lower_shadow > body * 3)
+        df['long_shadow_freq'] = (
+            long_shadow.astype(float).rolling(window=window, min_periods=10).mean().fillna(0)
+        )
+        return df[['long_shadow_freq']]
+
+    def doji_freq(self, open_col='open', high_col='high',
+                   low_col='low', close_col='close_x', window=20, threshold=0.2):
+        """
+        十字星频率：过去20日实体占比（|收-开| / (最高-最低)）< 0.2 的天数占比。
+        高频拉锯使收盘价反复回到开盘价附近，十字星频现是算法博弈的"指纹"。
+        """
+        df = self.df
+        body       = (df[close_col] - df[open_col]).abs()
+        total_range = (df[high_col] - df[low_col]).replace(0, np.nan)
+        body_ratio  = (body / total_range).fillna(0)
+        is_doji     = (body_ratio < threshold).astype(float)
+        df['doji_freq'] = (
+            is_doji.rolling(window=window, min_periods=10).mean().fillna(0)
+        )
+        return df[['doji_freq']]
+
+    def intraday_drawdown(self, high_col='high', close_col='close_x', window=20):
+        """
+        日内回撤幅度：过去20日 (最高价 - 收盘价) / 最高价 的均值。
+        高频突然撤单引发的"冲高回落"痕迹，均值越大说明盘中瞬间崩盘越频繁。
+        """
+        df = self.df
+        daily_drawdown = (
+            (df[high_col] - df[close_col]) / df[high_col].replace(0, np.nan)
+        )
+        df['intraday_drawdown'] = (
+            daily_drawdown.rolling(window=window, min_periods=10).mean().fillna(0)
+        )
+        return df[['intraday_drawdown']]
+
+    def gap_vs_range_ratio(self, open_col='open', high_col='high',
+                            low_col='low', close_col='close_x', window=20):
+        """
+        隔夜跳空/日内波动比：20日平均隔夜跳空幅度 / 20日平均日内振幅。
+        高频策略主要在盘中活动，使日内波动远大于隔夜跳空，该比值越低说明盘中
+        算法干扰越强。
+        """
+        df = self.df
+        gap           = (df[open_col] - df[close_col].shift(1)).abs() \
+                        / df[close_col].shift(1).replace(0, np.nan)
+        intraday_rng  = (df[high_col] / df[low_col].replace(0, np.nan) - 1)
+        gap_mean      = gap.rolling(window=window, min_periods=10).mean()
+        range_mean    = intraday_rng.rolling(window=window, min_periods=10).mean().replace(0, np.nan)
+        df['gap_vs_range_ratio'] = (gap_mean / range_mean).fillna(0)
+        return df[['gap_vs_range_ratio']]
+
+    def factor_time_series(self, factors: list = None, periods: list = None):
+        """
+        批量计算因子时序差分特征（必须在所有基础因子计算完成后调用）。
+
+        对指定因子列计算 N 日差分：{factor}_chg_{N}d = factor(t) - factor(t-N)
+        正值表示因子近期上升，负值表示下降，LGBM 可直接捕捉变化方向与幅度。
+
+        Parameters
+        ----------
+        factors : list[str] | None  要计算差分的列名，None 时使用默认列表
+        periods : list[int] | None  差分周期（交易日），None 时默认 [5, 10]
+        """
+        if factors is None:
+            factors = [
+                # 技术振荡器（KDJ、RSI）
+                'K', 'D', 'J',
+                'rsi',
+                # 趋势指标
+                'macd',
+                'adx',
+                # 波动率与换手
+                'volatility_20d',
+                'turnover_rate_x',
+                # 反转与动量
+                'reversal_5d',
+                'momentum_12_1',
+                # 融资余额（原始值变化，区别于 mtm_margin_balance_change 的百分比变化）
+                'rzye',
+            ]
+        if periods is None:
+            periods = [5, 10]
+
+        df = self.df
+        for f in factors:
+            if f not in df.columns:
+                continue
+            series = df[f].astype(float)
+            for p in periods:
+                df[f'{f}_chg_{p}d'] = series.diff(p).fillna(0)
+
+    # ------------------------------------------------------------------ #
     #  统一计算入口                                                         #
     # ------------------------------------------------------------------ #
 
@@ -704,6 +825,11 @@ class FactorManager:
                 self.ret_10d, self.ret_20d, self.ret_60d,
                 self.dist_52w_high, self.close_ma20_ratio,
                 self.up_day_ratio_20, self.vol_price_corr_20d, self.adx,
+                # 高频痕迹因子
+                self.turnover_amplitude_ratio, self.long_shadow_freq,
+                self.doji_freq, self.intraday_drawdown, self.gap_vs_range_ratio,
+                # 时序差分特征（依赖上方所有因子列，必须最后计算）
+                self.factor_time_series,
             ]
         else:
             calcu_list = []

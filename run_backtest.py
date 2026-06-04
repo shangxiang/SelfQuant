@@ -14,6 +14,10 @@ from strategy.sell.hold_n_days import HoldNDaysSellStrategy
 from backtest.config import BacktestConfig
 from backtest.engine import BacktestEngine
 from backtest.timing import MATiming, StyleConvergenceTiming, LastBatchTiming, BlindWindowTiming, BlindWindowVolTiming
+from strategy.selection.lgbm_ranker_strategy import LGBMRankerConfig, LGBMRankerStrategy
+from strategy.selection.ic_weighted_strategy import ICWeightedConfig, ICWeightedStrategy
+from strategy.sell.hold_n_days_batch_stop import HoldNDaysBatchStopStrategy
+
 
 TOP_N = 10
 
@@ -108,13 +112,24 @@ if __name__ == '__main__':
     s_cfg    = LGBMConfig()
     loader   = DataLoader(s_cfg)
     strategy = LGBMStrategy(s_cfg, loader)
+
+    # LGBMRanker（使用 LambdaRank，支持时间衰减）
+    # cfg = LGBMRankerConfig()
+    # loader = DataLoader(cfg)
+    # strategy = LGBMRankerStrategy(cfg, loader)
+
+    # IC 加权选股
+    # cfg      = ICWeightedConfig()
+    # loader   = DataLoader(cfg)
+    # strategy = ICWeightedStrategy(cfg, loader)
+
     # ──────────────────────────────────────────────────────
 
     b_cfg        = BacktestConfig()
     b_cfg.top_n  = 10
 
-    # # 纯因子评估（Rank IC + 分层收益）
-    # strategy.simple_backtest('20200103', '20260522')
+    # 纯因子评估（Rank IC + 分层收益）
+    # strategy.simple_backtest('20240101', '20250520')
 
     # 均线择时（原方案）
     timing = MATiming(

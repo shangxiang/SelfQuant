@@ -372,7 +372,8 @@ def plot_distribution(df: pd.DataFrame, save_path: str) -> None:
 #  图表 3 — score 信号质量分析                                           #
 # ------------------------------------------------------------------ #
 
-def load_score_data(task_dir: str) -> Optional[pd.DataFrame]:
+
+
     """
     读取 daily_picks.csv，聚合为每期 score 统计。
     返回列：trade_date, score_max, score_mean, score_spread, score_q10。

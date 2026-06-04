@@ -105,6 +105,21 @@ def standardize(incremental: bool = False):
         'ret_10d', 'ret_20d', 'ret_60d',
         'dist_52w_high', 'close_ma20_ratio',
         'up_day_ratio_20', 'vol_price_corr_20d', 'adx',
+        # 高频痕迹因子
+        'turnover_amplitude_ratio', 'long_shadow_freq',
+        'doji_freq', 'intraday_drawdown', 'gap_vs_range_ratio',
+        # 时序差分因子
+        'K_chg_5d', 'K_chg_10d',
+        'D_chg_5d', 'D_chg_10d',
+        'J_chg_5d', 'J_chg_10d',
+        'rsi_chg_5d', 'rsi_chg_10d',
+        'macd_chg_5d', 'macd_chg_10d',
+        'adx_chg_5d', 'adx_chg_10d',
+        'volatility_20d_chg_5d', 'volatility_20d_chg_10d',
+        'turnover_rate_x_chg_5d', 'turnover_rate_x_chg_10d',
+        'reversal_5d_chg_5d', 'reversal_5d_chg_10d',
+        'momentum_12_1_chg_5d', 'momentum_12_1_chg_10d',
+        'rzye_chg_5d', 'rzye_chg_10d',
     ]
 
     def winsorize_series(s, lower_perc=0.01, upper_perc=0.99):

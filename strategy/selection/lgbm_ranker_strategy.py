@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import warnings
-from typing import Optional
+from typing import Optional, List
 
 import lightgbm as lgb
 
@@ -10,8 +10,8 @@ from strategy.selection.base_strategy import BaseStrategy
 warnings.filterwarnings('ignore')
 
 
-class LGBMConfig:
-    """LightGBM 截面选股策略超参数配置。"""
+class LGBMRankerConfig:
+    """LightGBM LambdaRank 截面选股策略超参数配置。"""
 
     def __init__(self):
         # ---- 数据路径 ----
@@ -20,15 +20,19 @@ class LGBMConfig:
         self.stock_list_file = 'data/raw/stock_list/stock_list.csv'
 
         # ---- 列名 ----
-        self.stock_col  = 'ts_code'
-        self.label_col  = 'label'  # 中性化标准化后的 5 日收益；训练时会截面 rank 归一化
-        self.label_period: int = 5
-        self.label_lookahead: int = 6   # label 需要 T+6 价格才能确认
-        # self.label_period: int = 10
-        # self.label_lookahead: int = 11   # label 需要 T+6 价格才能确认
+        self.stock_col      = 'ts_code'
+        self.label_col      = 'label'
+        self.label_period   : int = 5
+        self.label_lookahead: int = 6
 
-        # ---- 因子列（树模型不需要标准化，直接用原始值）----
-        self.factor_cols = [
+        # ---- 相关度分档数（LambdaRank 标签范围 0 ~ n_relevance_levels-1）----
+        # 5档：Q1=0, Q2=1, Q3=2, Q4=3, Q5=4
+        # LightGBM 默认 gain 公式 2^label-1：label=4 → gain=15，label=0 → gain=0
+        # 这使模型把梯度集中在正确排出 Top-20% 上，与 Top-10 选股目标对齐
+        self.n_relevance_levels: int = 5
+
+        # ---- 因子列（树模型直接使用原始值，无需标准化）----
+        self.factor_cols: List[str] = [
             # 估值类
             'pe_ttm',
             'pb',
@@ -49,10 +53,10 @@ class LGBMConfig:
             'total_mv',
             'volatility_20d',
             'reversal_5d',
-            # 二值信号（不做标准化）
+            # 二值信号
             'macd_divergence',
             'macd_air_refuel',
-            # 基本面类（行业+市值中性化后标准化）
+            # 基本面类
             'gross_margin',
             'debt_ratio',
             'roe_ttm',
@@ -64,7 +68,7 @@ class LGBMConfig:
             'close_to_vwap_ratio',
             'mtm_margin_balance_change',
             'big_order_ratio',
-            # 'lhb_strength_5d',
+            'lhb_strength_5d',
             'rzye',
             # Fama-French 风格因子
             'size_factor',
@@ -73,124 +77,70 @@ class LGBMConfig:
             'cma_factor',
             'asset_growth_yoy',
             'momentum_12_1',
-            # # 中短期动量 / 技术形态因子
-            # 'ret_10d',
-            # 'ret_20d',
-            # 'ret_60d',
-            # 'dist_52w_high',
-            # 'close_ma20_ratio',
-            # 'up_day_ratio_20',
-            # 'vol_price_corr_20d',
-            # 'adx',
-            # # 高频痕迹因子
-            # 'turnover_amplitude_ratio',
-            # 'long_shadow_freq',
-            # 'doji_freq',
-            # 'intraday_drawdown',
-            # 'gap_vs_range_ratio',
-            # 高阶交叉因子
-            # 'smb_mom',
-            # 'smb_squared_mom',
-            # 'hml_rmw',
-            # 'smb_hml',
-            # 'vol_mom',
-            # 更多时序因子
-            'K_chg_5d',
-            'K_chg_10d',
-            'D_chg_5d',   
-            'D_chg_10d',   
-            'J_chg_5d',   
-            'J_chg_10d',
-            'rsi_chg_5d',   
-            'rsi_chg_10d',   
-            'macd_chg_5d',  
-            'macd_chg_10d',
-            'adx_chg_5d',   
-            'adx_chg_10d',
-            'volatility_20d_chg_5d',   
-            'volatility_20d_chg_10d',
-            'turnover_rate_x_chg_5d',  
-            'turnover_rate_x_chg_10d',
-            'reversal_5d_chg_5d',   
-            'reversal_5d_chg_10d',
-            'momentum_12_1_chg_5d',    
-            'momentum_12_1_chg_10d',
-            'rzye_chg_5d',  
-            'rzye_chg_10d',
+            # 中短期动量 / 技术形态因子
+            'ret_10d',
+            'ret_20d',
+            'ret_60d',
+            'dist_52w_high',
+            'close_ma20_ratio',
+            'up_day_ratio_20',
+            'vol_price_corr_20d',
+            'adx',
+            # 高频痕迹因子
+            'turnover_amplitude_ratio',
+            'long_shadow_freq',
+            'doji_freq',
+            'intraday_drawdown',
+            'gap_vs_range_ratio',
         ]
 
-        # ---- 市值过滤（单位：万元；None 表示不过滤）----
-        # 30亿 = 300_000 万元
-        self.min_mv: Optional[int] = 0
-        # ---- ST 过滤（True = 过滤掉 ST 股，默认开启）----
-        self.filter_st: bool = True
-
         # ---- 滚动训练窗口（交易日数）----
-        self.window: int = 40  # 比 ElasticNet 稍大，给树模型更多样本
+        self.window: int = 20
 
-        # ---- 时间衰减权重（半衰期，单位：交易日；None 表示不使用）----
-        # 权重公式：w = 2^(-(today_idx - j) / weight_halflife)
-        # 60 表示距今 60 个交易日的样本权重为最新样本的一半
+        # ---- 时间衰减权重（半衰期；None 表示不使用）----
         self.weight_halflife: Optional[int] = 20
 
-        # ---- LightGBM 超参数 ----
-        # self.lgbm_params = {
-        #     'objective':        'regression',
-        #     'metric':           'rmse',
-        #     'n_estimators':     100,
-        #     'learning_rate':    0.05,
-        #     'max_depth':        4,
-        #     'num_leaves':       15,       # < 2^max_depth，控制过拟合
-        #     'min_child_samples': 100,      # 每叶最少样本，防止截面过拟合
-        #     'subsample':        0.8,      # 行采样
-        #     'colsample_bytree': 0.6,      # 特征采样
-        #     'reg_alpha':        0.1,
-        #     'reg_lambda':       5.0,
-        #     'n_jobs':           -1,
-        #     'verbose':          -1,
-        #     'random_state':     42,
-        # }
+        # ---- LGBMRanker 超参数 ----
+        # label_gain=[0,1,2,3,4]：线性 gain 替代默认指数 [0,1,3,7,15]，
+        # 避免 Top-20% 因涨停股极值而获得 15x 过大梯度权重
+        # lambdarank_truncation_level=400：宽截断，让模型学"广义强势"而非"涨停彩票"
         self.lgbm_params = {
-            'objective':         'regression',
-            'metric':            'rmse',
-            'n_estimators':      70,
-            'learning_rate':     0.05,
-            'max_depth':         3,
-            'num_leaves':        7,
-            'min_child_samples': 300,
-            'subsample':         0.8,
-            'colsample_bytree':  0.6,
-            'reg_alpha':         0.1,
-            'reg_lambda':        5.0,  # quantile 本身已偏向头部，正则适当放松
-            'n_jobs':            -1,
-            'verbose':           -1,
-            'random_state':      42,
+            'n_estimators'              : 150,
+            'learning_rate'             : 0.05,
+            'max_depth'                 : 4,
+            'num_leaves'                : 15,
+            'min_child_samples'         : 50,
+            'subsample'                 : 0.8,
+            'colsample_bytree'          : 0.6,
+            'reg_alpha'                 : 0.1,
+            'reg_lambda'                : 1.0,
+            'lambdarank_truncation_level': 100,
+            'label_gain'                : [0, 1, 2, 3, 4],
+            'n_jobs'                    : -1,
+            'verbose'                   : -1,
+            'random_state'              : 42,
         }
 
-        # 是否使用早停（需要验证集）；False 则跑满 n_estimators
-        self.early_stopping: bool = False
-        self.early_stopping_rounds: int = 20
 
-
-class LGBMStrategy(BaseStrategy):
+class LGBMRankerStrategy(BaseStrategy):
     """
-    基于 LightGBM 的滚动窗口截面选股策略。
+    基于 LightGBM LambdaRank 的滚动窗口截面选股策略。
 
-    与 ElasticNetStrategy 的核心区别：
-      1. 树模型不需要特征标准化，直接使用原始因子值。
-      2. 训练标签为截面 rank 百分位（→ [-0.5, 0.5]），
-         消除极端收益的影响，提高跨期稳定性。
-      3. 打分为模型预测的 rank 值，越高表示预期涨幅越大。
-      4. feature_importances_ 替代 coef_ 作为因子贡献分析。
+    与 LGBMStrategy（regression）的核心区别：
+      1. 使用 LGBMRanker 直接优化 NDCG@20，而非 RMSE，
+         目标函数与 Top-10 选股的「排序」需求对齐更紧密。
+      2. 训练标签为组内五分位相关度（0-4 整数），每个截面为一个「查询组」。
+         LambdaRank 的 gain=2^label-1，Top-20% 股票的梯度权重是 Bottom-20% 的 15 倍。
+      3. 需要向 fit() 传入 group 数组（每组样本数），LightGBM 据此划分配对边界。
+      4. 时间衰减权重（sample_weight）仍然有效，逐样本施加。
 
-    接口与 ElasticNetStrategy 完全兼容，可无缝替换引擎中的策略对象。
+    接口与 LGBMStrategy 完全兼容，可无缝替换引擎中的策略对象。
     """
 
-    def __init__(self, config: LGBMConfig, data_loader):
+    def __init__(self, config: LGBMRankerConfig, data_loader):
         self.cfg    = config
         self.loader = data_loader
-        self._model: Optional[lgb.LGBMRegressor] = None
-        # 滚动平均特征重要度，用于 simple_backtest 的权重输出
+        self._model: Optional[lgb.LGBMRanker] = None
         self._importances: Optional[np.ndarray] = None
 
     def reset(self) -> None:
@@ -202,18 +152,25 @@ class LGBMStrategy(BaseStrategy):
     # ------------------------------------------------------------------
     def _build_train_data(self, today_idx: int):
         """
-        构建截面 rank 归一化的训练集。
+        构建 LambdaRank 训练集。
 
-        label 转换：每个截面日内，对原始涨幅做 rank(pct=True) - 0.5，
-        使 label 分布在 [-0.5, 0.5]，消除极端值影响。
+        Label 转换（每个截面独立）：
+          原始涨幅 → rank(method='first') → qcut 分 5 档 → 整数标签 [0,4]
+          rank(method='first') 打破平局，保证 qcut 分组不报错。
+
+        Group 构建：
+          每个截面日的股票数记为一个 group，按时间顺序追加。
+          LightGBM 的 group 数组格式为每组样本数（非边界索引）。
 
         Returns
         -------
-        X : np.ndarray or None  (n_samples, n_features)
-        y : np.ndarray or None  (n_samples,)  rank 归一化后的标签
+        X      : np.ndarray  (n_samples, n_features)
+        y      : np.ndarray  (n_samples,)  整数相关度 [0, n_relevance_levels-1]
+        groups : list[int]   每个截面的样本数（LightGBM group 参数）
+        dist   : np.ndarray  (n_samples,)  距今交易日数（用于时间衰减权重）
         """
         all_dates = self.loader.get_trading_dates()
-        X_list, y_list, dist_list = [], [], []
+        X_list, y_list, dist_list, groups = [], [], [], []
 
         for j in range(max(0, today_idx - self.cfg.window + 1), today_idx + 1):
             if j + self.cfg.label_lookahead > today_idx:
@@ -228,36 +185,60 @@ class LGBMStrategy(BaseStrategy):
 
             sub = df[[self.cfg.stock_col, self.cfg.label_col]].copy()
             sub = sub.dropna(subset=[self.cfg.label_col])
-            if len(sub) < 10:
+            # 至少需要 n_relevance_levels 只股票才能分档
+            if len(sub) < self.cfg.n_relevance_levels * 10:
                 continue
 
             for fc in self.cfg.factor_cols:
                 sub[fc] = df[fc].astype(float) if fc in df.columns else np.nan
 
             raw_label = sub[self.cfg.label_col].astype(float)
-            # 截面 rank 归一化：[-0.5, 0.5]，每日独立计算
-            sub['_y'] = raw_label.rank(pct=True) - 0.5
 
+            # 截尾后再排名：先 winsorize 到 90 分位，消除连续涨停股的极值干扰。
+            # 涨停股排名仍在头部，但不再因极端收益值独占 label=4 的梯度预算。
+            winsor_upper = raw_label.quantile(0.90)
+            winsor_lower = raw_label.quantile(0.10)
+            clipped_label = raw_label.clip(lower=winsor_lower, upper=winsor_upper)
+
+            # 组内五分位相关度：rank(method='first') 保证唯一，qcut 均等分档
+            try:
+                labels = pd.qcut(
+                    clipped_label.rank(method='first'),
+                    q=self.cfg.n_relevance_levels,
+                    labels=list(range(self.cfg.n_relevance_levels))
+                ).astype(np.int32)
+            except ValueError:
+                continue
+
+            sub['_y'] = labels
             sub = sub.dropna(subset=['_y'])
-            # _standard 列均值为 0，缺失填 0 语义等价于填均值
             sub[self.cfg.factor_cols] = sub[self.cfg.factor_cols].fillna(0.0)
 
             n_rows = len(sub)
+            if n_rows == 0:
+                continue
+
             X_list.append(sub[self.cfg.factor_cols].values.astype(np.float64))
-            y_list.append(sub['_y'].values.astype(np.float64))
-            # 记录该截面距今的交易日数，同一截面内所有样本距离相同
+            y_list.append(sub['_y'].values)
             dist_list.append(np.full(n_rows, today_idx - j, dtype=np.float64))
+            groups.append(n_rows)
 
         if not X_list:
-            return None, None, None
-        return np.vstack(X_list), np.concatenate(y_list), np.concatenate(dist_list)
+            return None, None, None, None
+
+        return (
+            np.vstack(X_list),
+            np.concatenate(y_list),
+            groups,
+            np.concatenate(dist_list),
+        )
 
     # ------------------------------------------------------------------
     # fit
     # ------------------------------------------------------------------
     def fit(self, date_str: str) -> bool:
         """
-        以 date_str 为基准日，用滚动窗口历史数据训练 LGBMRegressor。
+        以 date_str 为基准日，用滚动窗口历史数据训练 LGBMRanker。
 
         Returns
         -------
@@ -268,21 +249,19 @@ class LGBMStrategy(BaseStrategy):
             return False
 
         today_idx = all_dates.index(date_str)
-        X, y, dist = self._build_train_data(today_idx)
-        if X is None or len(y) < 50:
+        X, y, groups, dist = self._build_train_data(today_idx)
+        if X is None or len(groups) < 5:
             return False
 
-        # 时间衰减权重：w = 2^(-dist / halflife)，最新截面 w=1，往前指数衰减
         if self.cfg.weight_halflife is not None:
             sample_weight = np.power(2.0, -dist / self.cfg.weight_halflife)
         else:
             sample_weight = None
 
-        model = lgb.LGBMRegressor(**self.cfg.lgbm_params)
-        model.fit(X, y, sample_weight=sample_weight)
+        model = lgb.LGBMRanker(**self.cfg.lgbm_params)
+        model.fit(X, y, group=groups, sample_weight=sample_weight)
         self._model = model
 
-        # EMA 平滑特征重要度（稳定分析用，不影响预测）
         imp = model.feature_importances_.astype(float)
         if self._importances is None:
             self._importances = imp
@@ -298,7 +277,7 @@ class LGBMStrategy(BaseStrategy):
         """
         用当前模型对 date_str 截面内所有股票打分。
 
-        打分 = 模型预测的截面 rank 百分位（越高越好）。
+        打分 = LambdaRank 预测的相关度分数，越高越好。
 
         Returns
         -------
@@ -316,7 +295,6 @@ class LGBMStrategy(BaseStrategy):
             df_valid[fc] = df[fc].astype(float) if fc in df.columns else np.nan
 
         X = df_valid[self.cfg.factor_cols].values.astype(np.float64)
-        # _standard 列均值为 0，缺失填 0
         X = np.nan_to_num(X, nan=0.0)
 
         scores = self._model.predict(X)
@@ -325,23 +303,24 @@ class LGBMStrategy(BaseStrategy):
         return result.sort_values('score', ascending=False).reset_index(drop=True)
 
     # ------------------------------------------------------------------
-    # simple_backtest（与 ElasticNetStrategy 接口一致）
+    # simple_backtest
     # ------------------------------------------------------------------
     def simple_backtest(self, start_date: str, end_date: str) -> dict:
         """
-        Rank IC + 五分组多空收益评估。
+        Rank IC + 五分组多空收益 + NDCG@10 评估。
 
         Returns
         -------
-        dict: ic_df, ls_df, weights_df（特征重要度时间序列）
+        dict: ic_df, ls_df, weights_df, ndcg_df
         """
         self.reset()
         all_dates = self.loader.get_trading_dates()
         dates     = [d for d in all_dates if start_date <= d <= end_date]
 
-        ic_series        = []
+        ic_series          = []
         long_short_returns = []
         importance_history = {}
+        ndcg_series        = []
 
         for today in dates:
             ok = self.fit(today)
@@ -366,9 +345,26 @@ class LGBMStrategy(BaseStrategy):
             if signals.empty:
                 continue
 
+            # Rank IC（与实际涨幅的 Spearman 相关）
             ic = signals['score'].corr(signals[self.cfg.label_col], method='spearman')
             ic_series.append((today, ic))
 
+            # NDCG@10：以实际涨幅排名作为相关度
+            try:
+                true_relevance = signals[self.cfg.label_col].rank(method='first').values
+                pred_scores    = signals['score'].values
+                # sklearn.metrics.ndcg_score 期望 shape (1, n_samples)
+                from sklearn.metrics import ndcg_score as sk_ndcg
+                ndcg10 = sk_ndcg(
+                    true_relevance.reshape(1, -1),
+                    pred_scores.reshape(1, -1),
+                    k=10
+                )
+                ndcg_series.append((today, ndcg10))
+            except Exception:
+                pass
+
+            # 五分组多空
             signals['rank']  = signals['score'].rank(pct=True)
             signals['group'] = pd.cut(
                 signals['rank'],
@@ -385,6 +381,7 @@ class LGBMStrategy(BaseStrategy):
             long_short_returns, columns=['date', 'long_ret', 'short_ret', 'spread']
         ).set_index('date')
         weights_df = pd.DataFrame(importance_history).T.sort_index()
+        ndcg_df    = pd.DataFrame(ndcg_series, columns=['date', 'ndcg10']).set_index('date')
 
         print("===== Rank IC 统计 =====")
         print(f"IC 均值:  {ic_df['ic'].mean():.4f}")
@@ -392,6 +389,10 @@ class LGBMStrategy(BaseStrategy):
         ic_std = ic_df['ic'].std()
         print(f"IR:       {ic_df['ic'].mean() / ic_std:.4f}" if ic_std > 0 else "IR: N/A")
         print(f"IC>0 比例:{(ic_df['ic'] > 0).mean():.2%}")
+
+        if not ndcg_df.empty:
+            print(f"\n===== NDCG@10 统计 =====")
+            print(f"均值: {ndcg_df['ndcg10'].mean():.4f}  |  中位数: {ndcg_df['ndcg10'].median():.4f}")
 
         n  = self.cfg.label_period
         ls_nonoverlap = ls_df.iloc[::n]
@@ -408,6 +409,11 @@ class LGBMStrategy(BaseStrategy):
         print("\n===== 特征重要度均值（Top 15）=====")
         print(weights_df.mean().sort_values(ascending=False).head(15))
 
-        result = {'ic_df': ic_df, 'ls_df': ls_df, 'weights_df': weights_df}
+        result = {
+            'ic_df'     : ic_df,
+            'ls_df'     : ls_df,
+            'weights_df': weights_df,
+            'ndcg_df'   : ndcg_df,
+        }
         self.report_dump(result, label_period=n)
         return result

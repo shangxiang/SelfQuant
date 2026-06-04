@@ -78,6 +78,21 @@ class ElasticNetConfig:
             'hml_rmw_standard',             # 价值×盈利质量
             'smb_hml_standard',             # 规模×价值
             'vol_mom_standard',             # 波动率×动量（动量崩溃信号）
+            # 中短期动量 / 技术形态因子
+            'ret_10d_standard',
+            'ret_20d_standard',
+            'ret_60d_standard',
+            'dist_52w_high_standard',
+            'close_ma20_ratio_standard',
+            'up_day_ratio_20_standard',
+            'vol_price_corr_20d_standard',
+            'adx_standard',
+            # 高频痕迹因子
+            'turnover_amplitude_ratio_standard',
+            'long_shadow_freq_standard',
+            'doji_freq_standard',
+            'intraday_drawdown_standard',
+            'gap_vs_range_ratio_standard',
         ]
 
         # ---- 模型超参数 ----

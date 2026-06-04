@@ -305,11 +305,11 @@ def main() -> None:
     # if RUN_DOWNLOAD and needs_update:
     #     step_download(t_date)
 
-    if RUN_MERGE and needs_update:
-        step_merge()
+    # if RUN_MERGE and needs_update:
+    #     step_merge()
 
-    if RUN_FACTORS and needs_update:
-        step_factors()
+    # if RUN_FACTORS and needs_update:
+    #     step_factors()
 
     if RUN_STANDARDIZE and needs_update:
         step_standardize()
