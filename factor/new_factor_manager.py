@@ -742,6 +742,63 @@ class FactorManager:
         df['gap_vs_range_ratio'] = (gap_mean / range_mean).fillna(0)
         return df[['gap_vs_range_ratio']]
 
+    def poly_shape(self, close_col='close_x', vol_col='vol', window=6):
+        """
+        对最近 window 天的价格和成交量拟合二次多项式，提取形状因子。
+
+        输出 4 列：
+          poly_close_a1 — 价格线性系数（趋势方向与斜率）
+          poly_close_a2 — 价格二次系数（趋势加速/减速，正=加速，负=减速）
+          poly_vol_a1   — 成交量线性系数（量能趋势方向）
+          poly_vol_a2   — 成交量二次系数（量能加速/减速）
+
+        归一化方式：
+          价格：y = close / close[window_start] - 1，以窗口首日为基准转成收益率序列
+          成交量：先除以 20 日滚动均量（消除股票间量级差异），再窗口内减均值
+
+        预计算伪逆矩阵，避免逐窗口 polyfit，效率更高。
+        """
+        df = self.df
+        t = np.arange(window, dtype=float)
+        # 设计矩阵：[t², t, 1]，形状 (window, 3)
+        T = np.column_stack([t ** 2, t, np.ones(window)])
+        T_pinv = np.linalg.pinv(T)   # 形状 (3, window)，预计算一次
+        w_a2 = T_pinv[0]             # 提取 a2 的权重向量
+        w_a1 = T_pinv[1]             # 提取 a1 的权重向量
+
+        n = len(df)
+
+        # ---- 价格多项式 ----
+        close_arr = df[close_col].astype(float).values
+        a1_close = np.zeros(n)
+        a2_close = np.zeros(n)
+        for i in range(window - 1, n):
+            chunk = close_arr[i - window + 1: i + 1]
+            if not np.all(np.isfinite(chunk)) or chunk[0] == 0:
+                continue
+            y = chunk / chunk[0] - 1          # 归一化为收益率序列
+            a1_close[i] = w_a1 @ y
+            a2_close[i] = w_a2 @ y
+
+        df['poly_close_a1'] = a1_close
+        df['poly_close_a2'] = a2_close
+
+        # ---- 成交量多项式 ----
+        vol_mean20 = df[vol_col].astype(float).rolling(20, min_periods=10).mean()
+        vol_norm = (df[vol_col].astype(float) / vol_mean20.replace(0, np.nan)).fillna(1.0).values
+        a1_vol = np.zeros(n)
+        a2_vol = np.zeros(n)
+        for i in range(window - 1, n):
+            chunk = vol_norm[i - window + 1: i + 1]
+            if not np.all(np.isfinite(chunk)):
+                continue
+            y = chunk - chunk.mean()          # 窗口内中心化，只保留形状
+            a1_vol[i] = w_a1 @ y
+            a2_vol[i] = w_a2 @ y
+
+        df['poly_vol_a1'] = a1_vol
+        df['poly_vol_a2'] = a2_vol
+
     def factor_time_series(self, factors: list = None, periods: list = None):
         """
         批量计算因子时序差分特征（必须在所有基础因子计算完成后调用）。
@@ -828,6 +885,8 @@ class FactorManager:
                 # 高频痕迹因子
                 self.turnover_amplitude_ratio, self.long_shadow_freq,
                 self.doji_freq, self.intraday_drawdown, self.gap_vs_range_ratio,
+                # 多项式形状因子
+                self.poly_shape,
                 # 时序差分特征（依赖上方所有因子列，必须最后计算）
                 self.factor_time_series,
             ]

@@ -108,6 +108,9 @@ def standardize(incremental: bool = False):
         # 高频痕迹因子
         'turnover_amplitude_ratio', 'long_shadow_freq',
         'doji_freq', 'intraday_drawdown', 'gap_vs_range_ratio',
+        # 多项式形状因子
+        'poly_close_a1', 'poly_close_a2',
+        'poly_vol_a1', 'poly_vol_a2',
         # 时序差分因子
         'K_chg_5d', 'K_chg_10d',
         'D_chg_5d', 'D_chg_10d',
