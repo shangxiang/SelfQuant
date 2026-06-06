@@ -81,6 +81,7 @@ def standardize(incremental: bool = False):
     ]
 
     should_neutralize = [
+        'label_1', 'label_3',
         'label', 'label_10', 'label_25',
         'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm',
         'total_share', 'float_share', 'free_share',
