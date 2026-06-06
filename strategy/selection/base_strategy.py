@@ -158,6 +158,36 @@ class BaseStrategy(ABC):
                 weights_df.mean().sort_values(ascending=False).to_string(),
             ]
 
+        fa_df = result.get('factor_analysis_df')
+        if fa_df is not None and not fa_df.empty and 'ic_diff' in fa_df.columns:
+            threshold = 0.01
+            positive = fa_df[fa_df['ic_diff'] >  threshold].sort_values('ic_diff', ascending=False)
+            negative = fa_df[fa_df['ic_diff'] < -threshold].sort_values('ic_diff')
+            lines += [
+                '',
+                '===== 因子效果分类（IC 差分法）=====',
+                '方法：ic_diff = 因子被使用时的 IC 均值 − 因子未被使用时的 IC 均值',
+                '正值 → 该因子对模型有正向贡献；负值 → 引入噪声/过拟合，建议删除',
+                '',
+                f'正面因子（ic_diff > +{threshold}，共 {len(positive)} 个）：',
+            ]
+            for f, row in positive.iterrows():
+                lines.append(
+                    f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}"
+                    f"  importance={row['mean_importance']:.1f}"
+                    f"  ic_active={row['ic_when_active']:.4f}"
+                )
+            lines += [
+                '',
+                f'负面因子（ic_diff < -{threshold}，共 {len(negative)} 个）：',
+            ]
+            for f, row in negative.iterrows():
+                lines.append(
+                    f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}"
+                    f"  importance={row['mean_importance']:.1f}"
+                    f"  ic_active={row['ic_when_active']:.4f}"
+                )
+
         with open(os.path.join(output_dir, 'summary.txt'), 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines))
 

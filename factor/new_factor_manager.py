@@ -216,6 +216,18 @@ class FactorManager:
         df['label'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
         return df[['label']]
 
+    def label_1(self, period: int = 1):
+        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
+        df = self.df
+        df['label'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
+        return df[['label_1']]
+
+    def label_3(self, period: int = 3):
+        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
+        df = self.df
+        df['label'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
+        return df[['label_3']]
+
     def label_10(self, period: int = 10):
         """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
         df = self.df
@@ -867,6 +879,7 @@ class FactorManager:
         # 2. 技术量价因子
         if factor_list is None:
             calcu_list = [
+                self.label_1,self.label_3
                 self.label, self.label_10, self.label_25,
                 self.macd, self.kdj, self.mfi, self.rsi,
                 self.cci, self.force_index, self.vwap, self.mtm_margin,

@@ -74,20 +74,20 @@ class LGBMConfig:
             'asset_growth_yoy',
             'momentum_12_1',
             # # 中短期动量 / 技术形态因子
-            # 'ret_10d',
+            'ret_10d',
             # 'ret_20d',
             # 'ret_60d',
-            # 'dist_52w_high',
-            # 'close_ma20_ratio',
-            # 'up_day_ratio_20',
-            # 'vol_price_corr_20d',
-            # 'adx',
+            'dist_52w_high',
+            'close_ma20_ratio',
+            'up_day_ratio_20',
+            'vol_price_corr_20d',
+            'adx',
             # # 高频痕迹因子
-            # 'turnover_amplitude_ratio',
-            # 'long_shadow_freq',
-            # 'doji_freq',
-            # 'intraday_drawdown',
-            # 'gap_vs_range_ratio',
+            'turnover_amplitude_ratio',
+            'long_shadow_freq',
+            'doji_freq',
+            'intraday_drawdown',
+            'gap_vs_range_ratio',
             # 高阶交叉因子
             # 'smb_mom',
             # 'smb_squared_mom',
@@ -114,9 +114,14 @@ class LGBMConfig:
             'reversal_5d_chg_5d',   
             'reversal_5d_chg_10d',
             'momentum_12_1_chg_5d',    
-            'momentum_12_1_chg_10d',
+            # 'momentum_12_1_chg_10d',
             'rzye_chg_5d',  
             'rzye_chg_10d',
+            # 多项式形状因子
+            'poly_close_a1',
+            'poly_close_a2',
+            # 'poly_vol_a1',
+            'poly_vol_a2',
         ]
 
         # ---- 市值过滤（单位：万元；None 表示不过滤）----
@@ -408,6 +413,43 @@ class LGBMStrategy(BaseStrategy):
         print("\n===== 特征重要度均值（Top 15）=====")
         print(weights_df.mean().sort_values(ascending=False).head(15))
 
-        result = {'ic_df': ic_df, 'ls_df': ls_df, 'weights_df': weights_df}
+        # ---- 因子效果分析：IC 差分法 ----
+        # ic_diff = IC活跃时均值 - IC为零时均值
+        # 正值表示该因子被使用时模型表现更好（正向贡献）
+        # 负值表示该因子被使用时模型表现更差（引入噪声或过拟合）
+        factor_analysis: dict = {}
+        for col in weights_df.columns:
+            active_mask  = weights_df[col] > 0
+            active_dates = weights_df.index[active_mask]
+            zero_dates   = weights_df.index[~active_mask]
+            ic_active = ic_df['ic'].reindex(active_dates).mean()
+            ic_zero   = ic_df['ic'].reindex(zero_dates).mean()
+            if pd.notna(ic_active) and pd.notna(ic_zero):
+                ic_diff = float(ic_active - ic_zero)
+            else:
+                ic_diff = np.nan
+            factor_analysis[col] = {
+                'mean_importance': float(weights_df[col].mean()),
+                'ic_when_active':  float(ic_active) if pd.notna(ic_active) else np.nan,
+                'ic_when_zero':    float(ic_zero)   if pd.notna(ic_zero)   else np.nan,
+                'ic_diff':         ic_diff,
+            }
+
+        fa_df = pd.DataFrame(factor_analysis).T.sort_values('ic_diff', ascending=False)
+
+        threshold = 0.01
+        positive = fa_df[fa_df['ic_diff'] >  threshold]
+        negative = fa_df[fa_df['ic_diff'] < -threshold]
+
+        print(f"\n===== 因子效果分类（IC 差分法，阈值={threshold}）=====")
+        print(f"\n正面因子（ic_diff > +{threshold}，共 {len(positive)} 个）：")
+        for f, row in positive.iterrows():
+            print(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  importance={row['mean_importance']:.1f}")
+        print(f"\n负面因子（ic_diff < -{threshold}，共 {len(negative)} 个）：")
+        for f, row in negative.sort_values('ic_diff').iterrows():
+            print(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  importance={row['mean_importance']:.1f}")
+
+        result = {'ic_df': ic_df, 'ls_df': ls_df, 'weights_df': weights_df,
+                  'factor_analysis_df': fa_df}
         self.report_dump(result, label_period=n)
         return result
