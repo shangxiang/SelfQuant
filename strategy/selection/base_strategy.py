@@ -160,33 +160,32 @@ class BaseStrategy(ABC):
 
         fa_df = result.get('factor_analysis_df')
         if fa_df is not None and not fa_df.empty and 'ic_diff' in fa_df.columns:
-            threshold = 0.01
-            positive = fa_df[fa_df['ic_diff'] >  threshold].sort_values('ic_diff', ascending=False)
-            negative = fa_df[fa_df['ic_diff'] < -threshold].sort_values('ic_diff')
+            ic_thr = 0.01
+            lr_thr = 0.0
+            has_lr = 'long_ret_diff' in fa_df.columns
+            harmful  = fa_df[(fa_df['ic_diff'] < -ic_thr) & (fa_df['long_ret_diff'] < lr_thr if has_lr else True)].sort_values('ic_diff')
+            tradeoff = fa_df[(fa_df['ic_diff'] < -ic_thr) & (fa_df['long_ret_diff'] >= lr_thr)] if has_lr else fa_df.iloc[0:0]
+            positive = fa_df[fa_df['ic_diff'] >  ic_thr].sort_values('ic_diff', ascending=False)
             lines += [
                 '',
-                '===== 因子效果分类（IC 差分法）=====',
-                '方法：ic_diff = 因子被使用时的 IC 均值 − 因子未被使用时的 IC 均值',
-                '正值 → 该因子对模型有正向贡献；负值 → 引入噪声/过拟合，建议删除',
+                '===== 因子效果分类（IC差分 + 多头收益差分）=====',
+                '方法：ic_diff = 因子活跃时 RankIC 均值 − 未使用时 RankIC 均值',
+                '      long_ret_diff = 因子活跃时 Q5实际收益均值 − 未使用时 Q5实际收益均值',
+                '判断：仅当 ic_diff<0 且 long_ret_diff<0 时才认为真正有害',
                 '',
-                f'正面因子（ic_diff > +{threshold}，共 {len(positive)} 个）：',
+                f'正面因子（ic_diff > +{ic_thr}，共 {len(positive)} 个）：',
             ]
             for f, row in positive.iterrows():
-                lines.append(
-                    f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}"
-                    f"  importance={row['mean_importance']:.1f}"
-                    f"  ic_active={row['ic_when_active']:.4f}"
-                )
-            lines += [
-                '',
-                f'负面因子（ic_diff < -{threshold}，共 {len(negative)} 个）：',
-            ]
-            for f, row in negative.iterrows():
-                lines.append(
-                    f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}"
-                    f"  importance={row['mean_importance']:.1f}"
-                    f"  ic_active={row['ic_when_active']:.4f}"
-                )
+                lr_str = f"  lr_diff={row['long_ret_diff']:+.5f}" if has_lr else ''
+                lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}{lr_str}  imp={row['mean_importance']:.1f}")
+            lines += ['', f'真正有害（ic_diff<-{ic_thr} 且 long_ret_diff<0，共 {len(harmful)} 个，建议删除）：']
+            for f, row in harmful.iterrows():
+                lr_str = f"  lr_diff={row['long_ret_diff']:+.5f}" if has_lr else ''
+                lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}{lr_str}  imp={row['mean_importance']:.1f}")
+            if not tradeoff.empty:
+                lines += ['', f'以排序换头部收益（ic_diff负但lr_diff正，共 {len(tradeoff)} 个，谨慎删除）：']
+                for f, row in tradeoff.sort_values('long_ret_diff', ascending=False).iterrows():
+                    lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  lr_diff={row['long_ret_diff']:+.5f}  imp={row['mean_importance']:.1f}")
 
         with open(os.path.join(output_dir, 'summary.txt'), 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines))

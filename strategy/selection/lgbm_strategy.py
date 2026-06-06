@@ -413,41 +413,55 @@ class LGBMStrategy(BaseStrategy):
         print("\n===== 特征重要度均值（Top 15）=====")
         print(weights_df.mean().sort_values(ascending=False).head(15))
 
-        # ---- 因子效果分析：IC 差分法 ----
-        # ic_diff = IC活跃时均值 - IC为零时均值
-        # 正值表示该因子被使用时模型表现更好（正向贡献）
-        # 负值表示该因子被使用时模型表现更差（引入噪声或过拟合）
+        # ---- 因子效果分析：IC 差分 + 多头收益差分 ----
+        # ic_diff       = 因子活跃时 Rank IC 均值 − 因子未使用时 Rank IC 均值
+        # long_ret_diff = 因子活跃时 Q5 实际收益均值 − 因子未使用时 Q5 实际收益均值
+        # 只有两者均为负时，才认为该因子真正有害（否则可能是以排序代价换取头部收益）
         factor_analysis: dict = {}
         for col in weights_df.columns:
             active_mask  = weights_df[col] > 0
             active_dates = weights_df.index[active_mask]
             zero_dates   = weights_df.index[~active_mask]
-            ic_active = ic_df['ic'].reindex(active_dates).mean()
-            ic_zero   = ic_df['ic'].reindex(zero_dates).mean()
-            if pd.notna(ic_active) and pd.notna(ic_zero):
-                ic_diff = float(ic_active - ic_zero)
-            else:
-                ic_diff = np.nan
+
+            ic_active   = ic_df['ic'].reindex(active_dates).mean()
+            ic_zero     = ic_df['ic'].reindex(zero_dates).mean()
+            ic_diff     = float(ic_active - ic_zero) if pd.notna(ic_active) and pd.notna(ic_zero) else np.nan
+
+            lr_active   = ls_df['long_ret'].reindex(active_dates).mean()
+            lr_zero     = ls_df['long_ret'].reindex(zero_dates).mean()
+            lr_diff     = float(lr_active - lr_zero) if pd.notna(lr_active) and pd.notna(lr_zero) else np.nan
+
             factor_analysis[col] = {
-                'mean_importance': float(weights_df[col].mean()),
-                'ic_when_active':  float(ic_active) if pd.notna(ic_active) else np.nan,
-                'ic_when_zero':    float(ic_zero)   if pd.notna(ic_zero)   else np.nan,
-                'ic_diff':         ic_diff,
+                'mean_importance':  float(weights_df[col].mean()),
+                'ic_when_active':   float(ic_active)  if pd.notna(ic_active)  else np.nan,
+                'ic_when_zero':     float(ic_zero)    if pd.notna(ic_zero)    else np.nan,
+                'ic_diff':          ic_diff,
+                'lr_when_active':   float(lr_active)  if pd.notna(lr_active)  else np.nan,
+                'lr_when_zero':     float(lr_zero)    if pd.notna(lr_zero)    else np.nan,
+                'long_ret_diff':    lr_diff,
             }
 
-        fa_df = pd.DataFrame(factor_analysis).T.sort_values('ic_diff', ascending=False)
+        fa_df = pd.DataFrame(factor_analysis).T
 
-        threshold = 0.01
-        positive = fa_df[fa_df['ic_diff'] >  threshold]
-        negative = fa_df[fa_df['ic_diff'] < -threshold]
+        ic_thr = 0.01
+        lr_thr = 0.0
+        # 真正有害：ic_diff 负 且 top组实际收益也更差
+        harmful  = fa_df[(fa_df['ic_diff'] < -ic_thr) & (fa_df['long_ret_diff'] < lr_thr)].sort_values('ic_diff')
+        # ic差分负但头部收益更高：牺牲排序换来大涨股，不应删除
+        tradeoff = fa_df[(fa_df['ic_diff'] < -ic_thr) & (fa_df['long_ret_diff'] >= lr_thr)].sort_values('long_ret_diff', ascending=False)
+        positive = fa_df[fa_df['ic_diff'] >  ic_thr].sort_values('ic_diff', ascending=False)
 
-        print(f"\n===== 因子效果分类（IC 差分法，阈值={threshold}）=====")
-        print(f"\n正面因子（ic_diff > +{threshold}，共 {len(positive)} 个）：")
+        print(f"\n===== 因子效果分类（IC差分 + 多头收益差分，ic阈值={ic_thr}）=====")
+        print(f"\n正面因子（ic_diff > +{ic_thr}，共 {len(positive)} 个）：")
         for f, row in positive.iterrows():
-            print(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  importance={row['mean_importance']:.1f}")
-        print(f"\n负面因子（ic_diff < -{threshold}，共 {len(negative)} 个）：")
-        for f, row in negative.sort_values('ic_diff').iterrows():
-            print(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  importance={row['mean_importance']:.1f}")
+            print(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  lr_diff={row['long_ret_diff']:+.5f}  imp={row['mean_importance']:.1f}")
+        print(f"\n真正有害（ic_diff<-{ic_thr} 且 long_ret_diff<0，共 {len(harmful)} 个，建议删除）：")
+        for f, row in harmful.iterrows():
+            print(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  lr_diff={row['long_ret_diff']:+.5f}  imp={row['mean_importance']:.1f}")
+        if not tradeoff.empty:
+            print(f"\n以排序换头部收益（ic_diff负但lr_diff正，共 {len(tradeoff)} 个，谨慎删除）：")
+            for f, row in tradeoff.iterrows():
+                print(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  lr_diff={row['long_ret_diff']:+.5f}  imp={row['mean_importance']:.1f}")
 
         result = {'ic_df': ic_df, 'ls_df': ls_df, 'weights_df': weights_df,
                   'factor_analysis_df': fa_df}
