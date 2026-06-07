@@ -5,16 +5,23 @@ import statsmodels.api as sm
 import os
 
 
-def series_to_section(colume_list=None, incremental: bool = False):
+def series_to_section(colume_list=None, incremental: bool = False, main_board_only: bool = True):
     """
     将 data/series/ 下按股票存储的时序 CSV 转换为按日期存储的截面 CSV，
     输出到 data/section/<trade_date>.csv。
 
-    incremental=True 时跳过 data/section/ 下已存在同名文件的日期，只写新日期。
+    main_board_only=True（默认）时，只保留 data/raw/stock_list/stock_list.csv
+    中的 ts_code（沪深两市主板），过滤掉创业板、科创板、北交所等。
+
+    incremental=True 时的行为：
+      - 读取所有 series 文件并 concat 成 final_result（同非增量模式）
+      - 抽检任意一个已有截面文件，判断其列是否覆盖 final_result 的所有列
+        （section 目录下所有文件列结构一致，一个文件代表全部）
+        ① 列完整：已有日期的截面文件全部跳过，只写入新日期文件
+        ② 列不完整：向已有日期的截面文件补充缺失列，同样写入新日期文件
     """
     series_path = "data/series/"
     final_result = []
-    # 只匹配股票代码文件，排除 daily_basic_data.csv 等合并产物
     for filename in glob.glob(series_path + "[0-9]*.csv"):
         if colume_list is not None and "ts_code" in colume_list and "trade_date" in colume_list:
             df = pd.read_csv(filename, usecols=colume_list)
@@ -23,18 +30,52 @@ def series_to_section(colume_list=None, incremental: bool = False):
         final_result.append(df)
 
     final_result = pd.concat(final_result, ignore_index=True)
+
+    if main_board_only:
+        stock_list = pd.read_csv("data/raw/stock_list/stock_list.csv", usecols=["ts_code"])
+        main_board_codes = set(stock_list["ts_code"])
+        before = len(final_result)
+        final_result = final_result[final_result["ts_code"].isin(main_board_codes)]
+        print(f"主板过滤：{before} 行 -> {len(final_result)} 行（保留 {final_result['ts_code'].nunique()} 只股票）")
+
     print(final_result.columns)
 
     section_path = "data/section/"
+
+    # 增量模式：抽检一个已有截面文件，确定需要补充哪些列（空列表 = 列完整可全部跳过）
+    missing_cols: list = []
+    if incremental:
+        sample_files = glob.glob(section_path + "*.csv")
+        if sample_files:
+            sample_cols = set(pd.read_csv(sample_files[0], nrows=0).columns)
+            missing_cols = [c for c in final_result.columns if c not in sample_cols]
+            if missing_cols:
+                print(f"  截面文件缺少 {len(missing_cols)} 列，将向已有文件补列：{missing_cols}")
+            else:
+                print("  截面文件列完整，跳过已有日期。")
+
     for trade_date, group in final_result.groupby("trade_date"):
         output_file_name = section_path + str(trade_date) + ".csv"
-        if incremental and os.path.exists(output_file_name):
-            continue
         group = group.sort_values("ts_code") if "ts_code" in group.columns else group
-        # 同一交易日同一股票只保留第一条
         group = group.drop_duplicates(subset="ts_code", keep='first', ignore_index=True)
+
+        if incremental and os.path.exists(output_file_name):
+            if not missing_cols:
+                continue  # 列完整，跳过
+            # 列不完整：只补充缺失列（merge on ts_code）
+            patch_cols = [c for c in missing_cols if c in group.columns]
+            if patch_cols:
+                existing_df = pd.read_csv(output_file_name)
+                patch = group[['ts_code'] + patch_cols]
+                existing_df = existing_df.merge(patch, on='ts_code', how='left')
+                existing_df.to_csv(output_file_name, index=False)
+                print(f"  已补列 {trade_date}")
+            continue
+
+        # 新日期（或非增量模式）：直接写入
         group.to_csv(output_file_name, index=False)
         print("已保存", str(trade_date))
+
 
 
 def neutralize_one_day(df, factor_name, mv_col='total_mv', ind_col='industry'):
@@ -161,6 +202,8 @@ def standardize(incremental: bool = False):
                 continue
             if fac + '_neutral' in df.columns:
                 continue
+            if fac + '_standard' in df.columns:
+                continue
             if df[fac].isna().all():
                 neutralized_cols[fac + '_neutral'] = 0
                 continue
@@ -176,6 +219,8 @@ def standardize(incremental: bool = False):
         for col in need_standardize_columns:
             if '_standard' in col:
                 continue
+            if col + '_standard' in df.columns:
+                continue
             std = df[col].std()
             if std == 0 or pd.isna(std):
                 continue
@@ -183,6 +228,10 @@ def standardize(incremental: bool = False):
                 new_columns[col.replace('_neutral', '_standard')] = (df[col] - df[col].mean()) / std
             elif col + '_neutral' not in columns:
                 new_columns[col + '_standard'] = (df[col] - df[col].mean()) / std
+
+        if not neutralized_cols and not new_columns:
+            print(f'\r  跳过 {i + 1}/{total}', end='', flush=True)
+            continue
 
         if new_columns:
             df = pd.concat([df, pd.DataFrame(new_columns, index=df.index)], axis=1)
