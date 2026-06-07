@@ -205,12 +205,11 @@ def merge_basic_daily_data():
     for section_name in basic_daily_data_list:
         all_daily = []
         for file in glob.glob(raw_data_path + section_name + "/*.csv"):
-            # 按日期下载的目录（daily_basic_data/moneyflow/margin_detail/top_list）
-            # 文件名格式为 YYYYMMDD.csv，可直接用文件名过滤
-            if max_existing_date is not None:
-                basename = os.path.splitext(os.path.basename(file))[0]
-                if basename.isdigit() and basename <= max_existing_date:
-                    continue
+            # 按日期命名的文件（daily_basic_data/moneyflow/margin_detail/top_list）：
+            # 文件内含当日全部股票，不能用文件名日期做整文件跳过——
+            # 若 final_result 缺少某些股票，那些股票的历史数据就在这些旧文件里。
+            # 只有 stock_data（按股票命名）才能做文件级过滤（basename 非纯数字，不触发此分支）。
+            # 日期过滤统一在行级别通过 per-stock 逻辑处理（见下方）。
             df = pd.read_csv(file)
             df.drop(columns='Unnamed: 0', errors='ignore', inplace=True)
             all_daily.append(df)
