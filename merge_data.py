@@ -192,11 +192,14 @@ def merge_basic_daily_data():
     # 确定增量起点
     existing_df = None
     max_existing_date = None
+    existing_codes: set = set()
     if os.path.exists(out_path):
         existing_df = pd.read_csv(out_path, dtype={'trade_date': str})
         if 'trade_date' in existing_df.columns and not existing_df.empty:
             max_existing_date = existing_df['trade_date'].max()
-            print(f"  final_result.csv 已有数据截止 {max_existing_date}，仅加载新增日期")
+            existing_codes = set(existing_df['ts_code'].unique()) if 'ts_code' in existing_df.columns else set()
+            print(f"  final_result.csv 已有数据截止 {max_existing_date}，"
+                  f"已有 {len(existing_codes)} 只股票，仅加载新增数据")
 
     final_result = None
     for section_name in basic_daily_data_list:
@@ -225,7 +228,13 @@ def merge_basic_daily_data():
         # stock_data 按股票存储，文件名不是日期，需要按 trade_date 列过滤
         if max_existing_date is not None and 'trade_date' in daily_df.columns:
             daily_df['trade_date'] = daily_df['trade_date'].astype(str)
-            daily_df = daily_df[daily_df['trade_date'] > max_existing_date]
+            if existing_codes:
+                # 已存在的股票：只取新日期；新股票：保留全部历史
+                known_mask   = daily_df['ts_code'].isin(existing_codes)
+                new_date_mask = daily_df['trade_date'] > max_existing_date
+                daily_df = daily_df[~known_mask | new_date_mask]
+            else:
+                daily_df = daily_df[daily_df['trade_date'] > max_existing_date]
 
         if daily_df.empty:
             print(f"  {section_name}：无新增行，跳过")
