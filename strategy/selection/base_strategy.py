@@ -117,6 +117,9 @@ class BaseStrategy(ABC):
         if 'ls_df' in result and result['ls_df'] is not None:
             result['ls_df'].to_csv(os.path.join(output_dir, 'long_short_returns.csv'))
 
+        if 'topn_df' in result and result['topn_df'] is not None:
+            result['topn_df'].to_csv(os.path.join(output_dir, 'topn_returns.csv'))
+
         if 'weights_df' in result and result['weights_df'] is not None:
             result['weights_df'].to_csv(os.path.join(output_dir, 'factor_weights.csv'))
 
@@ -136,7 +139,6 @@ class BaseStrategy(ABC):
 
         ls_df = result.get('ls_df')
         if ls_df is not None and not ls_df.empty and 'spread' in ls_df.columns:
-            # 非重叠采样：每 label_period 行取一次，消除 N 日 label 的重叠效应
             ls_nonoverlap = ls_df.iloc[::label_period]
             ann_obs = 252 / label_period
             sp = ls_nonoverlap['spread']
@@ -150,6 +152,23 @@ class BaseStrategy(ABC):
                 f'年化夏普:     {sharpe:.4f}',
             ]
 
+        topn_df = result.get('topn_df')
+        if topn_df is not None and not topn_df.empty:
+            tn = topn_df.iloc[::label_period]
+            ann_obs = 252 / label_period
+            lines += ['', f'===== Top-N 头部多头收益统计（非重叠，持有期={label_period}d）=====',
+                      f'  {"":10s}  {"均值":>8s}  {"胜率":>7s}  {"累计":>9s}  {"年化夏普":>8s}  {"超额均值":>9s}']
+            mkt = tn['mkt'] if 'mkt' in tn.columns else pd.Series(0, index=tn.index)
+            for k in [10, 50, 100]:
+                col = f'top{k}'
+                if col not in tn.columns:
+                    continue
+                s   = tn[col]
+                cum = (1 + s).prod() - 1
+                sr  = (s.mean() / s.std()) * (ann_obs ** 0.5) if s.std() != 0 else 0.0
+                alp = (s - mkt).mean()
+                lines.append(f'  top{k:<8d}  {s.mean():8.4%}  {(s>0).mean():7.2%}  {cum:9.4%}  {sr:8.4f}  {alp:9.4%}')
+
         weights_df = result.get('weights_df')
         if weights_df is not None and not weights_df.empty:
             lines += [
@@ -160,32 +179,55 @@ class BaseStrategy(ABC):
 
         fa_df = result.get('factor_analysis_df')
         if fa_df is not None and not fa_df.empty and 'ic_diff' in fa_df.columns:
-            ic_thr = 0.01
-            lr_thr = 0.0
-            has_lr = 'long_ret_diff' in fa_df.columns
-            harmful  = fa_df[(fa_df['ic_diff'] < -ic_thr) & (fa_df['long_ret_diff'] < lr_thr if has_lr else True)].sort_values('ic_diff')
-            tradeoff = fa_df[(fa_df['ic_diff'] < -ic_thr) & (fa_df['long_ret_diff'] >= lr_thr)] if has_lr else fa_df.iloc[0:0]
-            positive = fa_df[fa_df['ic_diff'] >  ic_thr].sort_values('ic_diff', ascending=False)
+            ic_thr    = 0.01
+            has_t10   = 'top10_diff' in fa_df.columns
+            has_t100  = 'top100_diff' in fa_df.columns
+            has_q5    = 'q5_diff' in fa_df.columns
+            has_zero  = 'zero_n' in fa_df.columns
+            reliable  = fa_df['zero_n'] >= 10 if has_zero else pd.Series(True, index=fa_df.index)
+            # Primary decision metric: top10_diff (what actually matters for the strategy)
+            if has_t10:
+                harmful  = fa_df[reliable & (fa_df['ic_diff'] < -ic_thr) & (fa_df['top10_diff'] < 0)].sort_values('ic_diff')
+                tradeoff = fa_df[reliable & (fa_df['ic_diff'] < -ic_thr) & (fa_df['top10_diff'] >= 0)].sort_values('top10_diff', ascending=False)
+            else:
+                harmful  = fa_df[reliable & (fa_df['ic_diff'] < -ic_thr)].sort_values('ic_diff')
+                tradeoff = fa_df.iloc[0:0]
+            positive   = fa_df[reliable & (fa_df['ic_diff'] > ic_thr)].sort_values('ic_diff', ascending=False)
+            unreliable = fa_df[~reliable].sort_values('mean_importance', ascending=False) if has_zero else fa_df.iloc[0:0]
             lines += [
                 '',
-                '===== 因子效果分类（IC差分 + 多头收益差分）=====',
-                '方法：ic_diff = 因子活跃时 RankIC 均值 − 未使用时 RankIC 均值',
-                '      long_ret_diff = 因子活跃时 Q5实际收益均值 − 未使用时 Q5实际收益均值',
-                '判断：仅当 ic_diff<0 且 long_ret_diff<0 时才认为真正有害',
+                '===== 因子效果分类（IC差分 + Top10收益差分）=====',
+                '方法：ic_diff    = 因子活跃时 RankIC 均值 − 未使用时 RankIC 均值',
+                '      top10_diff = 因子活跃时 Top10收益均值 − 未使用时 Top10收益均值',
+                '注意：zero_n < 10 的因子对比组过小，ic_diff 估计不可信（见底部列表）',
                 '',
                 f'正面因子（ic_diff > +{ic_thr}，共 {len(positive)} 个）：',
             ]
             for f, row in positive.iterrows():
-                lr_str = f"  lr_diff={row['long_ret_diff']:+.5f}" if has_lr else ''
-                lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}{lr_str}  imp={row['mean_importance']:.1f}")
-            lines += ['', f'真正有害（ic_diff<-{ic_thr} 且 long_ret_diff<0，共 {len(harmful)} 个，建议删除）：']
+                t10_str  = f"  t10={row['top10_diff']:+.5f}" if has_t10 else ''
+                t100_str = f"  t100={row['top100_diff']:+.5f}" if has_t100 else ''
+                q5_str   = f"  q5={row['q5_diff']:+.5f}" if has_q5 else ''
+                zn_str   = f"  zero_n={int(row['zero_n'])}" if has_zero else ''
+                lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}{t10_str}{t100_str}{q5_str}  imp={row['mean_importance']:.1f}{zn_str}")
+            lines += ['', f'真正有害（ic_diff<-{ic_thr} 且 top10_diff<0，共 {len(harmful)} 个，建议删除）：']
             for f, row in harmful.iterrows():
-                lr_str = f"  lr_diff={row['long_ret_diff']:+.5f}" if has_lr else ''
-                lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}{lr_str}  imp={row['mean_importance']:.1f}")
+                t10_str  = f"  t10={row['top10_diff']:+.5f}" if has_t10 else ''
+                t100_str = f"  t100={row['top100_diff']:+.5f}" if has_t100 else ''
+                q5_str   = f"  q5={row['q5_diff']:+.5f}" if has_q5 else ''
+                zn_str   = f"  zero_n={int(row['zero_n'])}" if has_zero else ''
+                lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}{t10_str}{t100_str}{q5_str}  imp={row['mean_importance']:.1f}{zn_str}")
             if not tradeoff.empty:
-                lines += ['', f'以排序换头部收益（ic_diff负但lr_diff正，共 {len(tradeoff)} 个，谨慎删除）：']
-                for f, row in tradeoff.sort_values('long_ret_diff', ascending=False).iterrows():
-                    lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}  lr_diff={row['long_ret_diff']:+.5f}  imp={row['mean_importance']:.1f}")
+                lines += ['', f'以排序换头部收益（ic_diff负但top10_diff正，共 {len(tradeoff)} 个，谨慎删除）：']
+                for f, row in tradeoff.iterrows():
+                    t10_str  = f"  t10={row['top10_diff']:+.5f}" if has_t10 else ''
+                    t100_str = f"  t100={row['top100_diff']:+.5f}" if has_t100 else ''
+                    q5_str   = f"  q5={row['q5_diff']:+.5f}" if has_q5 else ''
+                    zn_str   = f"  zero_n={int(row['zero_n'])}" if has_zero else ''
+                    lines.append(f"  {f:<40s}  ic_diff={row['ic_diff']:+.4f}{t10_str}{t100_str}{q5_str}  imp={row['mean_importance']:.1f}{zn_str}")
+            if not unreliable.empty:
+                lines += ['', f'对比组不足（zero_n < 10，ic_diff 不可信，共 {len(unreliable)} 个）：']
+                for f, row in unreliable.iterrows():
+                    lines.append(f"  {f:<40s}  active={row['active_rate']:.0%}  zero_n={int(row['zero_n'])}  imp={row['mean_importance']:.1f}")
 
         with open(os.path.join(output_dir, 'summary.txt'), 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines))

@@ -17,7 +17,7 @@ from backtest.timing import MATiming, StyleConvergenceTiming, LastBatchTiming, B
 from strategy.selection.lgbm_ranker_strategy import LGBMRankerConfig, LGBMRankerStrategy
 from strategy.selection.ic_weighted_strategy import ICWeightedConfig, ICWeightedStrategy
 from strategy.sell.hold_n_days_batch_stop import HoldNDaysBatchStopStrategy
-
+from backtest.timing import LGBMDriftTiming
 
 TOP_N = 10
 
@@ -148,7 +148,7 @@ if __name__ == '__main__':
     #     corr_pct=20.0,   # corr_5d 低于历史 20% 分位 → 空仓
     #     vol_pct=33.0,    # l_vol   低于历史 33% 分位 → 空仓
     #     avoid_ratio=0.0, # 触发时空仓（改成 0.5 则半仓）
-    #     rolling_window=80,
+    #     rolling_window=40,
     #     trend_ma=0,
     # )
 
@@ -158,6 +158,18 @@ if __name__ == '__main__':
     # #     corr_threshold=0.75,  # 相关系数触发阈值
     # #     avoid_ratio=0.0,      # 触发时建仓比例（0.0=空仓，0.5=半仓）
     # # )
+
+    # 盲窗口择时LGBM专用
+    # timing = LGBMDriftTiming(
+    #     data_dir        = s_cfg.data_dir,          # 'data/section/'
+    #     calendar_file   = 'data/raw/trade_cal.csv',
+    #     factor_cols     = s_cfg.factor_cols,        # 与策略完全一致的因子列表
+    #     window          = s_cfg.window,             # 40，训练窗口长度
+    #     label_lookahead = s_cfg.label_lookahead,    # 6，盲窗口长度
+    #     rolling_window  = 40,    # 计算漂移分位数阈值用的历史期数
+    #     drift_high_pct  = 75.0,  # 漂移分数超过历史75%分位 → 降仓
+    #     avoid_ratio     = 0.0,   # 降仓时的仓位（0=空仓）
+    # )
     sell = HoldNDaysSellStrategy(n=5)
 
     engine = BacktestEngine(strategy, loader, b_cfg, timing=timing, sell_strategy=sell)
