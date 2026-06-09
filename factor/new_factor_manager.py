@@ -144,7 +144,80 @@ class FactorManager:
     所有因子方法都直接修改 self.df，由 update_factor() 统一调用。
     """
 
-    def __init__(self, path: str, fin_features: dict):
+    # 增量日期更新时向前携带的历史行数（覆盖最长滚动窗口 252 日 + 缓冲）
+    _ROLLING_LOOKBACK: int = 260
+
+    # 列名 → 产出该列的方法名。用于"列维度增量"检测：若列不存在则触发对应方法重算。
+    # 财务因子（_add_financial_factors）每次均在全量 df 上重跑，不纳入此字典。
+    factor_to_fun: dict = {
+        # ── 标签 ──────────────────────────────────────────────────────────
+        'label':   'label',
+        'label_1': 'label_1',
+        'label_3': 'label_3',
+        'label_10': 'label_10',
+        'label_25': 'label_25',
+        # ── MACD ─────────────────────────────────────────────────────────
+        'dif': 'macd', 'dea': 'macd', 'macd': 'macd',
+        # ── KDJ ──────────────────────────────────────────────────────────
+        'K': 'kdj', 'D': 'kdj', 'J': 'kdj',
+        # ── MFI（positive_flow / negative_flow 是 big_order_ratio 的中间依赖）
+        'mfi': 'mfi', 'positive_flow': 'mfi', 'negative_flow': 'mfi',
+        # ── 单列指标 ──────────────────────────────────────────────────────
+        'rsi':                    'rsi',
+        'cci':                    'cci',
+        'force_index':            'force_index',
+        'vwap':                   'vwap',
+        'close_to_vwap_ratio':    'vwap',
+        'mtm_margin_balance_change': 'mtm_margin',
+        'macd_air_refuel':        'macd_air_refuel',
+        'macd_divergence':        'macd_divergence',
+        'big_order_ratio':        'big_order_ratio',
+        'lhb_strength_5d':        'lhb_strength_5d',
+        'vol_breakout':           'vol_breakout',
+        'volatility_20d':         'volatility_20d',
+        'reversal_5d':            'reversal_5d',
+        'high_low_spread':        'high_low_spread',
+        # ── Fama-French 风格因子 ──────────────────────────────────────────
+        'size_factor':     'size_factor',
+        'value_factor':    'value_factor',
+        'cma_factor':      'cma_factor',
+        'momentum_12_1':   'momentum_12_1',
+        # ── 交叉因子 ──────────────────────────────────────────────────────
+        'smb_squared':     'smb_squared',
+        'smb_mom':         'smb_mom',
+        'smb_squared_mom': 'smb_squared_mom',
+        'hml_rmw':         'hml_rmw',
+        'smb_hml':         'smb_hml',
+        'vol_mom':         'vol_mom',
+        # ── 中短期动量 / 技术形态 ─────────────────────────────────────────
+        'ret_10d':             'ret_10d',
+        'ret_20d':             'ret_20d',
+        'ret_60d':             'ret_60d',
+        'dist_52w_high':       'dist_52w_high',
+        'close_ma20_ratio':    'close_ma20_ratio',
+        'up_day_ratio_20':     'up_day_ratio_20',
+        'vol_price_corr_20d':  'vol_price_corr_20d',
+        'adx':                 'adx',
+        # ── 高频痕迹 ──────────────────────────────────────────────────────
+        'turnover_amplitude_ratio': 'turnover_amplitude_ratio',
+        'long_shadow_freq':         'long_shadow_freq',
+        'doji_freq':                'doji_freq',
+        'intraday_drawdown':        'intraday_drawdown',
+        'gap_vs_range_ratio':       'gap_vs_range_ratio',
+        # ── 多项式形状因子 ────────────────────────────────────────────────
+        'poly_close_a1': 'poly_shape', 'poly_close_a2': 'poly_shape',
+        'poly_vol_a1':   'poly_shape', 'poly_vol_a2':   'poly_shape',
+        # ── 时序差分特征（factor_time_series 的默认输出）──────────────────
+        **{
+            f'{f}_chg_{p}d': 'factor_time_series'
+            for f in ('K', 'D', 'J', 'rsi', 'macd', 'adx',
+                      'volatility_20d', 'turnover_rate_x',
+                      'reversal_5d', 'momentum_12_1', 'rzye')
+            for p in (5, 10)
+        },
+    }
+
+
         """
         Parameters
         ----------
@@ -852,67 +925,127 @@ class FactorManager:
                 df[f'{f}_chg_{p}d'] = series.diff(p).fillna(0)
 
     # ------------------------------------------------------------------ #
+    #  增量辅助                                                            #
+    # ------------------------------------------------------------------ #
+
+    def _get_recorded_end(self) -> 'Optional[pd.Timestamp]':
+        """
+        从 data/series/_date_range.csv 读取本股票的已记录截止日期。
+        文件不存在或本股票无记录时返回 None（触发全量计算）。
+        """
+        config_path = os.path.join(os.path.dirname(self.path), '_date_range.csv')
+        if not os.path.exists(config_path):
+            return None
+        cfg = pd.read_csv(config_path, dtype=str)
+        row = cfg[cfg['ts_code'] == self.code]
+        if row.empty:
+            return None
+        return pd.to_datetime(row['end_date'].iloc[0], format='%Y%m%d')
+
+    def _incremental_date_update(self, calcu_list: list,
+                                  recorded_end: 'pd.Timestamp') -> None:
+        """
+        仅对 trade_date > recorded_end 的新行运行因子计算，旧行保持原值。
+
+        计算时向前携带 _ROLLING_LOOKBACK 行历史上下文，保证滚动窗口
+        （最长 252 日动量/52 周高点等）在新行上计算正确。
+        """
+        full_df = self.df  # 已含 _add_financial_factors 结果
+
+        old_mask = full_df['trade_date'] <= recorded_end
+        old_df   = full_df[old_mask].copy()
+        new_df   = full_df[~old_mask].copy()
+
+        if new_df.empty:
+            return
+
+        # 取旧行末尾若干行作为滚动上下文
+        context    = old_df.iloc[max(0, len(old_df) - self._ROLLING_LOOKBACK):]
+        compute_df = pd.concat([context, new_df], ignore_index=True)
+
+        self.df = compute_df
+        for calc in calcu_list:
+            calc()
+
+        # 只保留计算结果中的新行，旧行值不变
+        new_computed = self.df[self.df['trade_date'] > recorded_end].copy()
+
+        self.df = pd.concat([old_df, new_computed], ignore_index=True)
+        self.df.sort_values('trade_date', inplace=True)
+        self.df.reset_index(drop=True, inplace=True)
+
+    # ------------------------------------------------------------------ #
     #  统一计算入口                                                         #
     # ------------------------------------------------------------------ #
 
     def update_factor(self, factor_list: list = None) -> bool:
         """
-        计算全量因子并将结果写回原 CSV 文件。
+        计算因子并将结果写回原 CSV 文件。
 
-        执行顺序：
-          1. 基本面因子对齐（merge_asof）
-          2. 技术量价因子逐个计算（各方法直接修改 self.df）
-          3. 将 trade_date 恢复为 YYYYMMDD 整数格式后写盘
+        增量策略（factor_list=None 时生效）：
+          列维度：检查 factor_to_fun 中的列是否全部存在于文件中。
+                  若有缺失，只运行缺失列对应的函数（保持依赖顺序）。
+          行维度：若列完整但文件含有 _date_range.csv 记录日期之后的新行，
+                  只对新行运行计算（携带 _ROLLING_LOOKBACK 行历史上下文）。
+          若列完整且无新行，跳过全部技术因子计算直接写盘。
 
-        Parameters
-        ----------
-        factor_list : list[str] | None
-            指定要计算的因子方法名列表，None 表示计算全部因子
-
-        Returns
-        -------
-        bool  始终返回 True（便于调用方做批量计数）
+        财务因子（_add_financial_factors）每次均在全量 df 上重跑，不受增量逻辑影响。
+        显式传入 factor_list 时，始终对全量 df 执行指定因子的计算。
         """
-        # 1. 基本面因子：通过 merge_asof 按披露日对齐到日线
+        # 1. 基本面因子：全量对齐（merge_asof 幂等，每次重跑保证财报更新能同步）
         self._add_financial_factors()
 
-        # 2. 技术量价因子
-        if factor_list is None:
-            calcu_list = [
-                self.label_1,self.label_3,
-                self.label, self.label_10, self.label_25,
-                self.macd, self.kdj, self.mfi, self.rsi,
-                self.cci, self.force_index, self.vwap, self.mtm_margin,
-                self.macd_air_refuel, self.macd_divergence, self.big_order_ratio,
-                self.lhb_strength_5d, self.vol_breakout, self.volatility_20d,
-                self.reversal_5d, self.high_low_spread,
-                # Fama-French 风格因子（size/value 读日线列，cma 读已对齐的财务列）
-                self.size_factor, self.value_factor, self.cma_factor, self.momentum_12_1,
-                # 高阶/交叉因子：依赖上方 FF 因子列已写入 df，必须置于其后
-                self.smb_squared, self.smb_mom, self.smb_squared_mom,
-                self.hml_rmw, self.smb_hml, self.vol_mom,
-                # 中短期动量 / 技术形态因子
-                self.ret_10d, self.ret_20d, self.ret_60d,
-                self.dist_52w_high, self.close_ma20_ratio,
-                self.up_day_ratio_20, self.vol_price_corr_20d, self.adx,
-                # 高频痕迹因子
-                self.turnover_amplitude_ratio, self.long_shadow_freq,
-                self.doji_freq, self.intraday_drawdown, self.gap_vs_range_ratio,
-                # 多项式形状因子
-                self.poly_shape,
-                # 时序差分特征（依赖上方所有因子列，必须最后计算）
-                self.factor_time_series,
-            ]
-        else:
+        # 2. 构建完整技术因子调用序列（维护顺序即依赖顺序）
+        full_calcu_list = [
+            self.label_1, self.label_3,
+            self.label, self.label_10, self.label_25,
+            self.macd, self.kdj, self.mfi, self.rsi,
+            self.cci, self.force_index, self.vwap, self.mtm_margin,
+            self.macd_air_refuel, self.macd_divergence, self.big_order_ratio,
+            self.lhb_strength_5d, self.vol_breakout, self.volatility_20d,
+            self.reversal_5d, self.high_low_spread,
+            self.size_factor, self.value_factor, self.cma_factor, self.momentum_12_1,
+            self.smb_squared, self.smb_mom, self.smb_squared_mom,
+            self.hml_rmw, self.smb_hml, self.vol_mom,
+            self.ret_10d, self.ret_20d, self.ret_60d,
+            self.dist_52w_high, self.close_ma20_ratio,
+            self.up_day_ratio_20, self.vol_price_corr_20d, self.adx,
+            self.turnover_amplitude_ratio, self.long_shadow_freq,
+            self.doji_freq, self.intraday_drawdown, self.gap_vs_range_ratio,
+            self.poly_shape,
+            self.factor_time_series,
+        ]
+
+        if factor_list is not None:
+            # 显式指定列表：全量计算
             calcu_list = []
             for f in factor_list:
                 if hasattr(self, f):
                     calcu_list.append(getattr(self, f))
                 else:
                     print(f"警告：{f} 不是有效的因子方法名")
-
-        for calc in calcu_list:
-            calc()
+            for calc in calcu_list:
+                calc()
+        else:
+            # ── 列维度增量 ──────────────────────────────────────────────
+            missing_cols = [c for c in self.factor_to_fun if c not in self.df.columns]
+            if missing_cols:
+                needed_funs = {self.factor_to_fun[c] for c in missing_cols}
+                # 从 full_calcu_list 中过滤出缺失列对应的函数（保持原始顺序）
+                calcu_list = [f for f in full_calcu_list if f.__name__ in needed_funs]
+                for calc in calcu_list:
+                    calc()
+            else:
+                # ── 日期维度增量 ────────────────────────────────────────
+                recorded_end = self._get_recorded_end()
+                if recorded_end is None:
+                    # 无 config 记录 → 全量计算
+                    for calc in full_calcu_list:
+                        calc()
+                elif (self.df['trade_date'] > recorded_end).any():
+                    # 有新行 → 只对新行计算
+                    self._incremental_date_update(full_calcu_list, recorded_end)
+                # 否则：列完整、无新行 → 跳过全部技术因子计算
 
         # 写盘前将 trade_date 从 datetime 恢复为原始整数格式（YYYYMMDD）
         self.df['trade_date'] = self.df['trade_date'].dt.strftime('%Y%m%d').astype(int)
@@ -920,14 +1053,47 @@ class FactorManager:
         return True
 
 
+
 # ================== 3. 并行工作函数（必须在模块顶层，ProcessPoolExecutor 才能 pickle）==================
 
-def _process_one_stock(args: tuple) -> str:
-    """处理单只股票的因子计算，返回文件路径（供进度追踪）。"""
+def _process_one_stock(args: tuple) -> tuple:
+    """处理单只股票的因子计算，返回 (file, ts_code, start_date, end_date)。"""
     file, fin_features = args
     fm = FactorManager(file, fin_features)
     fm.update_factor()
-    return file
+    # update_factor() 最后将 trade_date 转回 YYYYMMDD int，直接读 min/max
+    start_date = str(int(fm.df['trade_date'].min()))
+    end_date   = str(int(fm.df['trade_date'].max()))
+    return file, fm.code, start_date, end_date
+
+
+def update_series_config(results: list, config_path: str) -> None:
+    """
+    将各股票的 trade_date 时间范围写入 data/series/_date_range.csv。
+
+    config 格式（CSV）：
+        ts_code, start_date, end_date
+    已有记录按 ts_code 更新；新股票追加；结果按 ts_code 排序。
+
+    Parameters
+    ----------
+    results     : list of (ts_code, start_date, end_date)
+    config_path : str
+    """
+    if not results:
+        return
+
+    new_df = pd.DataFrame(results, columns=['ts_code', 'start_date', 'end_date'])
+
+    if os.path.exists(config_path):
+        existing = pd.read_csv(config_path, dtype=str)
+        combined = pd.concat([existing, new_df], ignore_index=True)
+        combined.drop_duplicates(subset='ts_code', keep='last', inplace=True)
+    else:
+        combined = new_df
+
+    combined.sort_values('ts_code', inplace=True)
+    combined.to_csv(config_path, index=False)
 
 
 # ================== 4. 主程序 ==================
@@ -950,14 +1116,18 @@ if __name__ == '__main__':
     print(f"启动 {n_workers} 个进程并行计算因子（共 {total} 只股票）...")
 
     completed = 0
+    date_range_results = []
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         futures = {executor.submit(_process_one_stock, (f, fin_features)): f for f in files}
         for future in as_completed(futures):
             completed += 1
             print(f"\r完成 {completed}/{total}", end='', flush=True)
             try:
-                future.result()
+                _, ts_code, start_date, end_date = future.result()
+                date_range_results.append((ts_code, start_date, end_date))
             except Exception as e:
                 print(f"\n  ✗ {futures[future]}: {e}")
 
-    print("\n因子计算完成。")
+    config_path = os.path.join(series_path, '_date_range.csv')
+    update_series_config(date_range_results, config_path)
+    print(f"\n因子计算完成，date range config 已更新 → {config_path}")

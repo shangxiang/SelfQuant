@@ -31,6 +31,9 @@ class DownloadData:
     INDEX_BASIC_DIR     = "data/raw/index_basic/"
     INDEX_DAILY_DIR     = "data/raw/index_daily/"
 
+    # True = 只下载/更新主板股票（SH 6xxxxx 非688、SZ 0xxxxx 非300/301）
+    MAIN_BOARD_ONLY: bool = True
+
     def __init__(self, api=TushareDataSource):
         self.api = api()
 
@@ -70,8 +73,21 @@ class DownloadData:
         return sorted(df.loc[mask, 'cal_date'].tolist())
 
     def _get_stock_list(self) -> list[str]:
-        """从本地股票列表文件读取全量 ts_code。调用前需确保已下载。"""
-        return pd.read_csv(self.STOCK_LIST_PATH)['ts_code'].tolist()
+        """从本地股票列表文件读取 ts_code。MAIN_BOARD_ONLY=True 时只返回主板股票。"""
+        df = pd.read_csv(self.STOCK_LIST_PATH)
+        if self.MAIN_BOARD_ONLY:
+            df = df[df['ts_code'].apply(self._is_main_board)]
+        return df['ts_code'].tolist()
+
+    @staticmethod
+    def _is_main_board(ts_code: str) -> bool:
+        """主板判断：SH 以6开头且非688科创板；SZ 以0开头且非300/301创业板。"""
+        code, exchange = ts_code[:6], ts_code[-2:]
+        if exchange == 'SH':
+            return code.startswith('6') and not code.startswith('688')
+        if exchange == 'SZ':
+            return code.startswith('0') and not code.startswith('3')
+        return False  # BJ 及其他交易所一律排除
 
     # ------------------------------------------------------------------ #
     #  基础元数据                                                           #
@@ -311,24 +327,27 @@ class DownloadData:
 
 
 if __name__ == '__main__':
-    d = DownloadData()
+    d = DownloadData()  # MAIN_BOARD_ONLY=True，默认只处理主板
 
     # ① 基础元数据（其他方法依赖这三个，必须先跑）
     # d.trade_cal()       # 交易日历（全量，从2010年起）
-    # d.stock_list()      # 股票列表
+    # d.stock_list()      # 股票列表（含全板块，过滤由 _get_stock_list 控制）
     # d.index_basic()     # 指数基础信息
 
-    # # ② 按日期下载
+    # ② 按日期下载（全市场，无需过滤板块）
     # d.daily_basic_data()
     # d.moneyflow()
     # d.margin_detail()
     # d.top_list()
 
-    # # ③ 按股票下载（数量多，耗时较长）
+    # ③ 按股票下载（受 MAIN_BOARD_ONLY 控制，只处理主板）
     # d.stock_data()
     d.income()
     d.balancesheet()
     d.cashflow()
+
+    # ④ 指数日线（依赖 index_basic 已下载）
+    # d.index_daily()
 
     # ④ 指数日线（依赖 index_basic 已下载）
     # d.index_daily()

@@ -11,6 +11,9 @@ class DataLoader:
     stock_df 和交易日历在初始化时一次性读入，避免在高频调用 get_data() 时重复 I/O。
     """
 
+    # True = 只使用主板股票（SH 6xxxxx 非688、SZ 0xxxxx 非300/301，排除北交所）
+    MAIN_BOARD_ONLY: bool = True
+
     def __init__(self, config):
         """
         Parameters
@@ -26,12 +29,25 @@ class DataLoader:
         self.cache: dict = {}
 
         # 股票列表只读一次，后续 get_data 内合并时直接复用
-        self.stock_df = pd.read_csv(config.stock_list_file)
+        stock_df = pd.read_csv(config.stock_list_file)
+        if self.MAIN_BOARD_ONLY:
+            stock_df = stock_df[stock_df['ts_code'].apply(self._is_main_board)]
+        self.stock_df = stock_df.reset_index(drop=True)
 
         # 读取交易日历并转为有序字符串列表，只保留 2020 年以后（更早的截面数据不完整）
         cal = pd.read_csv(config.calendar_file, dtype={'cal_date': str})
         all_dates = sorted(cal['cal_date'].dropna().str.strip().tolist())
         self.all_dates: list[str] = [d for d in all_dates if d >= '20200101']
+
+    @staticmethod
+    def _is_main_board(ts_code: str) -> bool:
+        """主板判断：SH 以6开头且非688科创板；SZ 以0开头且非300/301创业板。"""
+        code, exchange = ts_code[:6], ts_code[-2:]
+        if exchange == 'SH':
+            return code.startswith('6') and not code.startswith('688')
+        if exchange == 'SZ':
+            return code.startswith('0') and not code.startswith('3')
+        return False  # BJ 及其他交易所一律排除
 
     def get_data(self, date_str: str) -> Optional[pd.DataFrame]:
         """
