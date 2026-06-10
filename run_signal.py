@@ -145,23 +145,28 @@ def step_factors() -> None:
     import glob as _glob
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, as_completed
-    from factor.new_factor_manager import build_financial_features, _process_one_stock
+    from factor.new_factor_manager import (
+        build_financial_features, _process_one_stock, update_series_config,
+    )
     fin_df = pd.read_csv('data/financial.csv')
     fin_features = build_financial_features(fin_df)
     files = _glob.glob('data/series/[0-9]*.csv')
     total = len(files)
     n_workers = max(1, multiprocessing.cpu_count() - 1)
     completed = 0
+    date_range_results = []
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         futures = {executor.submit(_process_one_stock, (f, fin_features)): f for f in files}
         for future in as_completed(futures):
             completed += 1
             print(f'\r  {completed}/{total}', end='', flush=True)
             try:
-                future.result()
+                _, ts_code, start_date, end_date = future.result()
+                date_range_results.append((ts_code, start_date, end_date))
             except Exception as e:
                 print(f'\n  ✗ {futures[future]}: {e}')
-    print('\n  因子计算完成。')
+    update_series_config(date_range_results, 'data/series/_date_range.csv')
+    print('\n  因子计算完成，date range config 已更新。')
 
 
 def step_standardize() -> None:
@@ -302,14 +307,14 @@ def main() -> None:
     if not needs_update:
         print('\n本地数据已是最新，跳过数据更新步骤。')
 
-    # if RUN_DOWNLOAD and needs_update:
-    #     step_download(t_date)
+    if RUN_DOWNLOAD and needs_update:
+        step_download(t_date)
 
-    # if RUN_MERGE and needs_update:
-    #     step_merge()
+    if RUN_MERGE and needs_update:
+        step_merge()
 
-    # if RUN_FACTORS and needs_update:
-    #     step_factors()
+    if RUN_FACTORS and needs_update:
+        step_factors()
 
     if RUN_STANDARDIZE and needs_update:
         step_standardize()
