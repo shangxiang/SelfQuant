@@ -215,9 +215,64 @@ class FactorManager:
                       'reversal_5d', 'momentum_12_1', 'rzye')
             for p in (5, 10)
         },
+        # ── Alpha101 因子 ──────────────────────────────────────────────────
+        **{f'alpha101_{i}': f'alpha101_{i}' for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 25, 33, 34, 41, 52, 53, 54, 57, 101]},
+        # ── Size 规模因子 ──────────────────────────────────────────────────
+        'size': 'size', 'float_size': 'float_size',
+        # ── Value 价值因子 ─────────────────────────────────────────────────
+        'earnings_to_price': 'earnings_to_price', 'book_to_market': 'book_to_market',
+        'ocf_to_market': 'ocf_to_market', 'fcf_to_market': 'fcf_to_market',
+        'sales_to_market': 'sales_to_market',
+        # ── Reversal 反转因子 ──────────────────────────────────────────────
+        'small_cap_reversal_21d': 'small_cap_reversal_21d', 'price_dist': 'price_dist',
+        # ── Momentum 动量因子（补充）──────────────────────────────────────
+        'return_5d': 'return_5d', 'return_21d': 'return_21d', 'return_42d': 'return_42d',
+        'return_63d': 'return_63d', 'return_126d': 'return_126d', 'return_252d': 'return_252d',
+        'ma_20d': 'ma_20d', 'price_position_ir_60d': 'price_position_ir_60d',
+        'rsrs': 'rsrs', 'days_down_up': 'days_down_up',
+        # ── Risk 风险因子 ──────────────────────────────────────────────────
+        'return_std_21d': 'return_std_21d', 'return_std_42d': 'return_std_42d',
+        'return_std_63d': 'return_std_63d', 'return_std_126d': 'return_std_126d',
+        'return_std_252d': 'return_std_252d',
+        'sharpe_60d': 'sharpe_60d', 'sharpe_750d': 'sharpe_750d',
+        'adjusted_sharpe_750d': 'adjusted_sharpe_750d',
+        'high_low_21d': 'high_low_21d', 'high_low_42d': 'high_low_42d',
+        'high_low_63d': 'high_low_63d', 'high_low_126d': 'high_low_126d',
+        'high_low_252d': 'high_low_252d',
+        'days_beyond_upper_lower_21d': 'days_beyond_upper_lower_21d',
+        'log_price': 'log_price',
+        # ── Liquidity 流动性因子 ───────────────────────────────────────────
+        'avg_turnover_5d': 'avg_turnover_5d', 'avg_turnover_10d': 'avg_turnover_10d',
+        'avg_turnover_20d': 'avg_turnover_20d', 'amount_ma_20d': 'amount_ma_20d',
+        'turnover_ma_20d': 'turnover_ma_20d', 'sum_abs_rtn_amount_20d': 'sum_abs_rtn_amount_20d',
+        'std_turnover_21d': 'std_turnover_21d', 'avg_turnover_21d': 'avg_turnover_21d',
+        'std_turnover_42d': 'std_turnover_42d', 'avg_turnover_42d': 'avg_turnover_42d',
+        'std_turnover_63d': 'std_turnover_63d', 'avg_turnover_63d': 'avg_turnover_63d',
+        'std_turnover_126d': 'std_turnover_126d', 'avg_turnover_126d': 'avg_turnover_126d',
+        'std_turnover_252d': 'std_turnover_252d', 'avg_turnover_252d': 'avg_turnover_252d',
+        'bias_turn_21d_252d': 'bias_turn_21d_252d', 'bias_std_turn_21d_252d': 'bias_std_turn_21d_252d',
+        'bias_turn_42d_252d': 'bias_turn_42d_252d', 'bias_turn_63d_252d': 'bias_turn_63d_252d',
+        'bias_turn_126d_252d': 'bias_turn_126d_252d',
+        'bias_turn_21d_504d': 'bias_turn_21d_504d', 'bias_std_turn_21d_504d': 'bias_std_turn_21d_504d',
+        'bias_turn_42d_504d': 'bias_turn_42d_504d', 'bias_std_turn_42d_504d': 'bias_std_turn_42d_504d',
+        'bias_turn_63d_504d': 'bias_turn_63d_504d', 'bias_std_turn_63d_504d': 'bias_std_turn_63d_504d',
+        'bias_turn_126d_504d': 'bias_turn_126d_504d', 'bias_std_turn_126d_504d': 'bias_std_turn_126d_504d',
+        'turnover_ma_20d_120d': 'turnover_ma_20d_120d',
+        # ── Quality 质量因子 ──────────────────────────────────────────────
+        'roe_ttm': 'roe_ttm', 'roa_ttm': 'roa_ttm', 'gross_margin': 'gross_margin',
+        'net_margin': 'net_margin', 'debt_to_assets': 'debt_to_assets',
+        'current_ratio': 'current_ratio', 'quick_ratio': 'quick_ratio',
+        'cash_flow_to_debt': 'cash_flow_to_debt', 'accruals': 'accruals',
+        'earnings_quality': 'earnings_quality',
+        # ── Growth 成长因子 ───────────────────────────────────────────────
+        'revenue_growth_yoy': 'revenue_growth_yoy', 'profit_growth_yoy': 'profit_growth_yoy',
+        'asset_growth_yoy': 'asset_growth_yoy', 'roe_growth_yoy': 'roe_growth_yoy',
+        'eps_growth_yoy': 'eps_growth_yoy', 'revenue_growth_qoq': 'revenue_growth_qoq',
+        'profit_growth_qoq': 'profit_growth_qoq', 'gross_margin_growth': 'gross_margin_growth',
+        'net_margin_growth': 'net_margin_growth', 'ocf_growth_yoy': 'ocf_growth_yoy',
     }
 
-
+    def __init__(self, path: str, fin_features: dict):
         """
         Parameters
         ----------
@@ -238,6 +293,38 @@ class FactorManager:
             self.code = self.df['ts_code'].iloc[0]
         else:
             self.code = os.path.splitext(os.path.basename(self.path))[0]
+
+        # 计算后复权价格列，供所有因子计算使用
+        self._compute_hfq_prices()
+
+    # ------------------------------------------------------------------ #
+    #  后复权价格计算                                                       #
+    # ------------------------------------------------------------------ #
+
+    def _compute_hfq_prices(self) -> None:
+        """
+        根据复权因子计算后复权价格，供因子计算使用。
+
+        后复权价格 = 不复权价格 × 复权因子。
+        后复权价格序列保证了区间收益率的真实连续性（包含分红送股等公司行为），
+        使得基于价格变化率的因子（MACD、RSI、动量等）不受除权缺口的干扰。
+
+        生成的列：close_hfq, open_hfq, high_hfq, low_hfq
+        若 adj_factor 列不存在，则后复权价格等同于不复权价格。
+        """
+        if 'adj_factor' not in self.df.columns:
+            # 无复权因子数据，后复权价格退化为不复权价格
+            self.df['close_hfq'] = self.df['close_x']
+            self.df['open_hfq']  = self.df['open']
+            self.df['high_hfq']  = self.df['high']
+            self.df['low_hfq']   = self.df['low']
+            return
+
+        adj = self.df['adj_factor']
+        self.df['close_hfq'] = self.df['close_x'] * adj
+        self.df['open_hfq']  = self.df['open']  * adj
+        self.df['high_hfq']  = self.df['high']  * adj
+        self.df['low_hfq']   = self.df['low']   * adj
 
     # ------------------------------------------------------------------ #
     #  基本面因子对齐                                                       #
@@ -284,36 +371,36 @@ class FactorManager:
     # ------------------------------------------------------------------ #
 
     def label(self, period: int = 5):
-        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
+        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。使用后复权价格。"""
         df = self.df
-        df['label'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
+        df['label'] = (df['close_hfq'].shift(-period-1) - df['close_hfq'].shift(-1)) / df['close_hfq'].shift(-1)
         return df[['label']]
 
     def label_1(self, period: int = 1):
-        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
+        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。使用后复权价格。"""
         df = self.df
-        df['label_1'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
+        df['label_1'] = (df['close_hfq'].shift(-period-1) - df['close_hfq'].shift(-1)) / df['close_hfq'].shift(-1)
         return df[['label_1']]
 
     def label_3(self, period: int = 3):
-        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
+        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。使用后复权价格。"""
         df = self.df
-        df['label_3'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
+        df['label_3'] = (df['close_hfq'].shift(-period-1) - df['close_hfq'].shift(-1)) / df['close_hfq'].shift(-1)
         return df[['label_3']]
 
     def label_10(self, period: int = 10):
-        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
+        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。使用后复权价格。"""
         df = self.df
-        df['label_10'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
+        df['label_10'] = (df['close_hfq'].shift(-period-1) - df['close_hfq'].shift(-1)) / df['close_hfq'].shift(-1)
         return df[['label_10']]
 
     def label_25(self, period: int = 25):
-        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。"""
+        """预测标签：未来 period 日的涨跌幅（用于模型训练，实盘时末尾为 NaN）。使用后复权价格。"""
         df = self.df
-        df['label_25'] = (df['close_x'].shift(-period-1) - df['close_x'].shift(-1)) / df['close_x'].shift(-1)
+        df['label_25'] = (df['close_hfq'].shift(-period-1) - df['close_hfq'].shift(-1)) / df['close_hfq'].shift(-1)
         return df[['label_25']]
 
-    def macd(self, price_col='close_x', fast=12, slow=26, signal=9):
+    def macd(self, price_col='close_hfq', fast=12, slow=26, signal=9):
         """
         MACD 三线：DIF（快慢均线差）、DEA（DIF 的信号线）、MACD（柱状值）。
         标准参数 12-26-9，使用指数移动平均（EMA）。
@@ -327,7 +414,7 @@ class FactorManager:
         df.drop(columns=['ema_fast', 'ema_slow'], inplace=True)
         return df[['dif', 'dea', 'macd']]
 
-    def kdj(self, high_col='high', low_col='low', close_col='close_x',
+    def kdj(self, high_col='high_hfq', low_col='low_hfq', close_col='close_hfq',
             period=9, k_period=3, d_period=3):
         """
         KDJ 随机指标：K、D 为平滑后的超买超卖指标，J 为 K 和 D 的偏离度。
@@ -351,7 +438,7 @@ class FactorManager:
         df['J'] = 3 * df['K'] - 2 * df['D']
         return df[['K', 'D', 'J']]
 
-    def rsi(self, price_col='close_x', period=14):
+    def rsi(self, price_col='close_hfq', period=14):
         """
         RSI 相对强弱指数：衡量一段时间内涨幅占总波动的比例。
         RSI = 100 - 100 / (1 + 平均涨幅 / 平均跌幅)
@@ -369,7 +456,7 @@ class FactorManager:
         df['rsi'] = df['rsi'].fillna(50)   # 数据不足时填中性值 50
         return df[['rsi']]
 
-    def cci(self, high_col='high', low_col='low', close_col='close_x', period=14):
+    def cci(self, high_col='high_hfq', low_col='low_hfq', close_col='close_hfq', period=14):
         """
         CCI 顺势指标：典型价格偏离其均值的程度（以平均绝对偏差为分母归一化）。
         典型价格 TP = (高 + 低 + 收) / 3；超过 ±100 通常视为超买/超卖。
@@ -384,7 +471,7 @@ class FactorManager:
         df['cci'] = cci.fillna(0)
         return df[['cci']]
 
-    def force_index(self, volume_col='vol', price_col='close_x', window=1):
+    def force_index(self, volume_col='vol', price_col='close_hfq', window=1):
         """
         强度指数：价格变动 × 成交量，衡量价格变动背后的资金驱动力。
         window=1 时为原始值；window>1 时做 EMA 平滑以减少噪音。
@@ -404,10 +491,10 @@ class FactorManager:
         """
         df = self.df
         df['vwap']               = (df['amount_x'] / df['vol']) * 10
-        df['close_to_vwap_ratio'] = (df['close_x'] - df['vwap']) / df['vwap']
+        df['close_to_vwap_ratio'] = (df['close_hfq'] - df['vwap']) / df['vwap']
         return df[['vwap', 'close_to_vwap_ratio']]
 
-    def mfi(self, high_col='high', low_col='low', close_col='close_x',
+    def mfi(self, high_col='high_hfq', low_col='low_hfq', close_col='close_hfq',
             volume_col='vol', period=14):
         """
         资金流量指标（MFI）：将 RSI 的价格换为「典型价格 × 成交量」，
@@ -479,9 +566,9 @@ class FactorManager:
         暗示下跌动能减弱，可能出现反转，输出为 0/1 二值信号。
         """
         df = self.df
-        low_min  = df['low'].rolling(window).min()
+        low_min  = df['low_hfq'].rolling(window).min()
         macd_min = df['macd'].rolling(window).min()
-        low_new_low  = (df['low']  < low_min.shift(1))   # 价格创新低
+        low_new_low  = (df['low_hfq']  < low_min.shift(1))   # 价格创新低
         macd_new_low = (df['macd'] < macd_min.shift(1))  # MACD 也创新低（非背离）
         df['macd_divergence'] = (low_new_low & ~macd_new_low).astype(int).fillna(0)
         return df[['macd_divergence']]
@@ -517,7 +604,7 @@ class FactorManager:
         df['vol_breakout'] = (df[vol_col] > avg_vol * multiplier).astype(int).fillna(0)
         return df[['vol_breakout']]
 
-    def volatility_20d(self, close_col='close_x', window=20):
+    def volatility_20d(self, close_col='close_hfq', window=20):
         """
         20 日历史波动率（年化）：日收益率的滚动标准差 × √252。
         用于衡量个股风险水平，可作为风险控制因子使用。
@@ -528,7 +615,7 @@ class FactorManager:
         df['volatility_20d'] = vol.fillna(0)
         return df[['volatility_20d']]
 
-    def reversal_5d(self, close_col='close_x', period=5):
+    def reversal_5d(self, close_col='close_hfq', period=5):
         """
         5 日反转因子：过去 5 日累计涨幅取反。
         短期内涨幅越大，反转因子越小（预期均值回归向下），反之亦然。
@@ -539,7 +626,7 @@ class FactorManager:
         df['reversal_5d'] = df['reversal_5d'].fillna(0)
         return df[['reversal_5d']]
 
-    def high_low_spread(self, high_col='high', low_col='low', close_col='close_x'):
+    def high_low_spread(self, high_col='high_hfq', low_col='low_hfq', close_col='close_hfq'):
         """
         日内振幅：(最高价 - 最低价) / 收盘价，衡量日内波动幅度。
         振幅大通常意味着分歧加剧或流动性下降。
@@ -578,7 +665,7 @@ class FactorManager:
         df['cma_factor'] = -df['asset_growth_yoy']
         return df[['cma_factor']]
 
-    def momentum_12_1(self, close_col='close_x', long_window=252, short_window=21):
+    def momentum_12_1(self, close_col='close_hfq', long_window=252, short_window=21):
         """
         动量因子（12-1 月）：过去 12 个月累计涨幅，排除最近 1 个月以规避短期反转。
         计算方式：ret_mom = (1 + ret_252) / (1 + ret_21) - 1
@@ -654,25 +741,25 @@ class FactorManager:
     #  中短期动量 / 技术形态因子                                             #
     # ------------------------------------------------------------------ #
 
-    def ret_10d(self, close_col='close_x'):
+    def ret_10d(self, close_col='close_hfq'):
         """10 日价格动量：捕捉短期延续效应，补充 reversal_5d 与 momentum_12_1 之间的空白。"""
         df = self.df
         df['ret_10d'] = df[close_col].pct_change(periods=10).fillna(0)
         return df[['ret_10d']]
 
-    def ret_20d(self, close_col='close_x'):
+    def ret_20d(self, close_col='close_hfq'):
         """20 日价格动量：月度级别趋势，与 reversal 和 12-1 动量互补。"""
         df = self.df
         df['ret_20d'] = df[close_col].pct_change(periods=20).fillna(0)
         return df[['ret_20d']]
 
-    def ret_60d(self, close_col='close_x'):
+    def ret_60d(self, close_col='close_hfq'):
         """60 日价格动量：季度级别中期趋势。"""
         df = self.df
         df['ret_60d'] = df[close_col].pct_change(periods=60).fillna(0)
         return df[['ret_60d']]
 
-    def dist_52w_high(self, close_col='close_x', window=252):
+    def dist_52w_high(self, close_col='close_hfq', window=252):
         """
         距 52 周高点的距离：(收盘价 / 252日最高收盘价) - 1，值域 (-∞, 0]。
         接近 52 周高点的股票往往处于强势趋势（George & Hwang 2004 动量解释）。
@@ -682,7 +769,7 @@ class FactorManager:
         df['dist_52w_high'] = (df[close_col] / rolling_max.replace(0, np.nan) - 1).fillna(0)
         return df[['dist_52w_high']]
 
-    def close_ma20_ratio(self, close_col='close_x', window=20):
+    def close_ma20_ratio(self, close_col='close_hfq', window=20):
         """
         收盘价相对 20 日均线偏离度：(close / MA20) - 1。
         正值表示价格在均线上方（偏强），负值在下方（偏弱），捕捉短期均值回归或趋势延续。
@@ -692,7 +779,7 @@ class FactorManager:
         df['close_ma20_ratio'] = (df[close_col] / ma20.replace(0, np.nan) - 1).fillna(0)
         return df[['close_ma20_ratio']]
 
-    def up_day_ratio_20(self, close_col='close_x', window=20):
+    def up_day_ratio_20(self, close_col='close_hfq', window=20):
         """
         20 日上涨天数占比：滚动 20 日内收盘价上涨的交易日比例。
         衡量趋势一致性，区别于单纯的累计涨幅（避免大涨小跌噪音）。
@@ -702,7 +789,7 @@ class FactorManager:
         df['up_day_ratio_20'] = up_flag.rolling(window=window, min_periods=5).mean().fillna(0)
         return df[['up_day_ratio_20']]
 
-    def vol_price_corr_20d(self, close_col='close_x', vol_col='vol', window=20):
+    def vol_price_corr_20d(self, close_col='close_hfq', vol_col='vol', window=20):
         """
         量价相关性（20 日）：价格日收益率与成交量日变化率的滚动相关系数。
         正值（量价齐升/同步下跌）通常为趋势延续信号；负值（量价背离）暗示反转。
@@ -713,7 +800,7 @@ class FactorManager:
         df['vol_price_corr_20d'] = price_ret.rolling(window=window, min_periods=10).corr(vol_chg).fillna(0)
         return df[['vol_price_corr_20d']]
 
-    def adx(self, high_col='high', low_col='low', close_col='close_x', period=14):
+    def adx(self, high_col='high_hfq', low_col='low_hfq', close_col='close_hfq', period=14):
         """
         平均趋向指数（ADX）：Wilder 方法，衡量趋势强度（不含方向）。
         ADX > 25 通常认为趋势显著；<20 为盘整。
@@ -751,7 +838,7 @@ class FactorManager:
     # ------------------------------------------------------------------ #
 
     def turnover_amplitude_ratio(self, turnover_col='turnover_rate_x',
-                                  high_col='high', low_col='low', window=20):
+                                  high_col='high_hfq', low_col='low_hfq', window=20):
         """
         换手率振幅比：换手率 / (最高价/最低价 - 1) 的20日均值。
         高频刷单放大成交但压缩价格波动，该比率异常放大是做市算法的典型痕迹。
@@ -765,8 +852,8 @@ class FactorManager:
         )
         return df[['turnover_amplitude_ratio']]
 
-    def long_shadow_freq(self, open_col='open', high_col='high',
-                          low_col='low', close_col='close_x', window=20):
+    def long_shadow_freq(self, open_col='open_hfq', high_col='high_hfq',
+                          low_col='low_hfq', close_col='close_hfq', window=20):
         """
         长影线频率：过去20日出现长影线（上/下影线 > 实体×3）的天数占比。
         高频算法试探盘口深度后迅速撤退，在日K线上留下极长影线。
@@ -781,8 +868,8 @@ class FactorManager:
         )
         return df[['long_shadow_freq']]
 
-    def doji_freq(self, open_col='open', high_col='high',
-                   low_col='low', close_col='close_x', window=20, threshold=0.2):
+    def doji_freq(self, open_col='open_hfq', high_col='high_hfq',
+                   low_col='low_hfq', close_col='close_hfq', window=20, threshold=0.2):
         """
         十字星频率：过去20日实体占比（|收-开| / (最高-最低)）< 0.2 的天数占比。
         高频拉锯使收盘价反复回到开盘价附近，十字星频现是算法博弈的"指纹"。
@@ -797,7 +884,7 @@ class FactorManager:
         )
         return df[['doji_freq']]
 
-    def intraday_drawdown(self, high_col='high', close_col='close_x', window=20):
+    def intraday_drawdown(self, high_col='high_hfq', close_col='close_hfq', window=20):
         """
         日内回撤幅度：过去20日 (最高价 - 收盘价) / 最高价 的均值。
         高频突然撤单引发的"冲高回落"痕迹，均值越大说明盘中瞬间崩盘越频繁。
@@ -811,8 +898,8 @@ class FactorManager:
         )
         return df[['intraday_drawdown']]
 
-    def gap_vs_range_ratio(self, open_col='open', high_col='high',
-                            low_col='low', close_col='close_x', window=20):
+    def gap_vs_range_ratio(self, open_col='open_hfq', high_col='high_hfq',
+                            low_col='low_hfq', close_col='close_hfq', window=20):
         """
         隔夜跳空/日内波动比：20日平均隔夜跳空幅度 / 20日平均日内振幅。
         高频策略主要在盘中活动，使日内波动远大于隔夜跳空，该比值越低说明盘中
@@ -827,7 +914,1277 @@ class FactorManager:
         df['gap_vs_range_ratio'] = (gap_mean / range_mean).fillna(0)
         return df[['gap_vs_range_ratio']]
 
-    def poly_shape(self, close_col='close_x', vol_col='vol', window=6):
+    # ------------------------------------------------------------------ #
+    #  Alpha101 因子（世坤经典因子）                                        #
+    # ------------------------------------------------------------------ #
+
+    def _ts_rank(self, series: pd.Series, window: int) -> pd.Series:
+        """时序排名：当前值在过去window天中的百分位排名（0-1）"""
+        return series.rolling(window).apply(
+            lambda x: pd.Series(x).rank(pct=True).iloc[-1], raw=False
+        )
+
+    def _ts_argmax(self, series: pd.Series, window: int) -> pd.Series:
+        """时序最大值位置：过去window天中最大值的天数索引"""
+        return series.rolling(window).apply(lambda x: x.argmax(), raw=True)
+
+    def _ts_argmin(self, series: pd.Series, window: int) -> pd.Series:
+        """时序最小值位置：过去window天中最小值的天数索引"""
+        return series.rolling(window).apply(lambda x: x.argmin(), raw=True)
+
+    def _signed_power(self, series: pd.Series, power: float) -> pd.Series:
+        """带符号的幂运算：保留符号的幂次"""
+        return np.sign(series) * (series.abs() ** power)
+
+    def alpha101_1(self):
+        """Alpha101-1: 基于负收益时段波动放大的极值位置排名因子"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        std20 = returns.rolling(20).std()
+        # IF(Returns < 0, StdDev(Returns, 20), Close)
+        condition = np.where(returns < 0, std20, df['close_hfq'])
+        # Ts_ArgMax(SignedPower(..., 2), 5)
+        argmax = self._ts_argmax(self._signed_power(pd.Series(condition, index=df.index), 2), 5)
+        # Rank(...) - 0.5
+        df['alpha101_1'] = (argmax.rank(pct=True) - 0.5).fillna(0.5)
+        return df[['alpha101_1']]
+
+    def alpha101_2(self):
+        """Alpha101-2: 开盘价排名与成交量排名相关性的负值"""
+        df = self.df
+        # -1 * Correlation(Rank(Delta(Log(Volume), 2)), Rank((Close - Open) / Open), 6)
+        log_vol_delta = np.log(df['vol']).diff(2)
+        close_open_ratio = (df['close_hfq'] - df['open_hfq']) / df['open_hfq'].replace(0, np.nan)
+        corr = log_vol_delta.rank(pct=True).rolling(6).corr(close_open_ratio.rank(pct=True))
+        df['alpha101_2'] = (-corr).fillna(0)
+        return df[['alpha101_2']]
+
+    def alpha101_3(self):
+        """Alpha101-3: 开盘价排名与成交量排名相关性的负值"""
+        df = self.df
+        # -1 * Correlation(Rank(Open), Rank(Volume), 10)
+        corr = df['open_hfq'].rank(pct=True).rolling(10).corr(df['vol'].rank(pct=True))
+        df['alpha101_3'] = (-corr).fillna(0)
+        return df[['alpha101_3']]
+
+    def alpha101_4(self):
+        """Alpha101-4: 最低价排名的9日时间序列排名的负值"""
+        df = self.df
+        # -1 * Ts_Rank(Rank(Low), 9)
+        low_rank = df['low_hfq'].rank(pct=True)
+        df['alpha101_4'] = (-self._ts_rank(low_rank, 9)).fillna(0.5)
+        return df[['alpha101_4']]
+
+    def alpha101_5(self):
+        """Alpha101-5: 开盘价偏离VWAP排名与收盘价偏离VWAP排名绝对值的组合"""
+        df = self.df
+        vwap = df['vwap'] if 'vwap' in df.columns else (df['amount_x'] / df['vol'] * 10)
+        vwap10 = vwap.rolling(10).mean()
+        # Rank(Open - (Sum(VWAP, 10) / 10)) * (-1 * Abs(Rank(Close - VWAP)))
+        part1 = (df['open_hfq'] - vwap10).rank(pct=True)
+        part2 = -((df['close_hfq'] - vwap).rank(pct=True)).abs()
+        df['alpha101_5'] = (part1 * part2).fillna(0)
+        return df[['alpha101_5']]
+
+    def alpha101_6(self):
+        """Alpha101-6: 开盘价与成交量10日相关性的负值"""
+        df = self.df
+        # -1 * Correlation(Open, Volume, 10)
+        corr = df['open_hfq'].rolling(10).corr(df['vol'])
+        df['alpha101_6'] = (-corr).fillna(0)
+        return df[['alpha101_6']]
+
+    def alpha101_7(self):
+        """Alpha101-7: 成交量条件判断因子"""
+        df = self.df
+        adv20 = df['vol'].rolling(20).mean()
+        delta_close7 = df['close_hfq'].diff(7)
+        # (ADV20 < Volume) ? (-1 * Ts_Rank(Abs(Delta(Close, 7)), 60) * Sign(Delta(Close, 7))) : -1
+        condition = adv20 < df['vol']
+        ts_rank = self._ts_rank(delta_close7.abs(), 60)
+        sign = np.sign(delta_close7)
+        df['alpha101_7'] = np.where(condition, -ts_rank * sign, -1).fillna(-1)
+        return df[['alpha101_7']]
+
+    def alpha101_8(self):
+        """Alpha101-8: 5日开盘价与收益率乘积和相对其10日延迟值之差的排名负值"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        sum_open5 = df['open_hfq'].rolling(5).sum()
+        sum_ret5 = returns.rolling(5).sum()
+        product = sum_open5 * sum_ret5
+        # -1 * Rank((Sum(Open, 5) * Sum(Returns, 5)) - Delay(..., 10))
+        delta = product - product.shift(10)
+        df['alpha101_8'] = (-delta.rank(pct=True)).fillna(0)
+        return df[['alpha101_8']]
+
+    def alpha101_9(self):
+        """Alpha101-9: 收盘价变化的条件判断因子"""
+        df = self.df
+        delta_close = df['close_hfq'].diff(1)
+        ts_min5 = delta_close.rolling(5).min()
+        ts_max5 = delta_close.rolling(5).max()
+        # (0 < Ts_Min(Delta(Close, 1), 5)) ? Delta(Close, 1) :
+        #   ((Ts_Max(Delta(Close, 1), 5) < 0) ? Delta(Close, 1) : -1 * Delta(Close, 1))
+        condition1 = ts_min5 > 0
+        condition2 = ts_max5 < 0
+        result = np.where(condition1, delta_close,
+                         np.where(condition2, delta_close, -delta_close))
+        df['alpha101_9'] = pd.Series(result, index=df.index).fillna(0)
+        return df[['alpha101_9']]
+
+    def alpha101_10(self):
+        """Alpha101-10: 收盘价变化的排名条件判断因子"""
+        df = self.df
+        delta_close = df['close_hfq'].diff(1)
+        ts_min4 = delta_close.rolling(4).min()
+        ts_max4 = delta_close.rolling(4).max()
+        condition1 = ts_min4 > 0
+        condition2 = ts_max4 < 0
+        result = np.where(condition1, delta_close,
+                         np.where(condition2, delta_close, -delta_close))
+        df['alpha101_10'] = pd.Series(result, index=df.index).rank(pct=True).fillna(0.5)
+        return df[['alpha101_10']]
+
+    def alpha101_11(self):
+        """Alpha101-11: VWAP与收盘价差值的时序极值排名"""
+        df = self.df
+        vwap = df['vwap'] if 'vwap' in df.columns else (df['amount_x'] / df['vol'] * 10)
+        diff = vwap - df['close_hfq']
+        ts_max3 = diff.rolling(3).max()
+        ts_min3 = diff.rolling(3).min()
+        delta_vol3 = df['vol'].diff(3)
+        # (Rank(Ts_Max(VWAP - Close, 3)) + Rank(Ts_Min(VWAP - Close, 3))) * Rank(Delta(Volume, 3))
+        df['alpha101_11'] = ((ts_max3.rank(pct=True) + ts_min3.rank(pct=True)) *
+                             delta_vol3.rank(pct=True)).fillna(0)
+        return df[['alpha101_11']]
+
+    def alpha101_12(self):
+        """Alpha101-12: 成交量变化符号与收盘价变化的乘积"""
+        df = self.df
+        # Sign(Delta(Volume, 1)) * (-1 * Delta(Close, 1))
+        vol_sign = np.sign(df['vol'].diff(1))
+        delta_close = df['close_hfq'].diff(1)
+        df['alpha101_12'] = (vol_sign * -delta_close).fillna(0)
+        return df[['alpha101_12']]
+
+    def alpha101_13(self):
+        """Alpha101-13: 收盘价排名与成交量排名的协方差排名负值"""
+        df = self.df
+        # -1 * Rank(Covariance(Rank(Close), Rank(Volume), 5))
+        cov = df['close_hfq'].rank(pct=True).rolling(5).cov(df['vol'].rank(pct=True))
+        df['alpha101_13'] = (-cov.rank(pct=True)).fillna(0)
+        return df[['alpha101_13']]
+
+    def alpha101_14(self):
+        """Alpha101-14: 收益率变化排名与开盘价成交量相关性的乘积负值"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        delta_ret3 = returns.diff(3)
+        corr = df['open_hfq'].rolling(10).corr(df['vol'])
+        # -1 * Rank(Delta(Returns, 3)) * Correlation(Open, Volume, 10)
+        df['alpha101_14'] = (-delta_ret3.rank(pct=True) * corr).fillna(0)
+        return df[['alpha101_14']]
+
+    def alpha101_15(self):
+        """Alpha101-15: 最高价排名与成交量排名相关性的排名累加和负值"""
+        df = self.df
+        # -1 * Sum(Rank(Correlation(Rank(High), Rank(Volume), 3)), 3)
+        corr = df['high_hfq'].rank(pct=True).rolling(3).corr(df['vol'].rank(pct=True))
+        df['alpha101_15'] = (-corr.rank(pct=True).rolling(3).sum()).fillna(0)
+        return df[['alpha101_15']]
+
+    def alpha101_16(self):
+        """Alpha101-16: 最高价排名与成交量排名的协方差排名负值"""
+        df = self.df
+        # -1 * Rank(Covariance(Rank(High), Rank(Volume), 5))
+        cov = df['high_hfq'].rank(pct=True).rolling(5).cov(df['vol'].rank(pct=True))
+        df['alpha101_16'] = (-cov.rank(pct=True)).fillna(0)
+        return df[['alpha101_16']]
+
+    def alpha101_17(self):
+        """Alpha101-17: 收盘价排名、二阶差分排名、成交量相对ADV20排名的组合"""
+        df = self.df
+        adv20 = df['vol'].rolling(20).mean()
+        delta_close = df['close_hfq'].diff(1)
+        delta2_close = delta_close.diff(1)
+        # (-1 * Rank(Ts_Rank(Close, 10))) * Rank(Delta(Delta(Close, 1), 1)) * Rank(Ts_Rank(Volume / ADV20, 5))
+        part1 = -self._ts_rank(df['close_hfq'], 10).rank(pct=True)
+        part2 = delta2_close.rank(pct=True)
+        part3 = (df['vol'] / adv20.replace(0, np.nan)).rank(pct=True)
+        part3 = self._ts_rank(part3, 5)
+        df['alpha101_17'] = (part1 * part2 * part3).fillna(0)
+        return df[['alpha101_17']]
+
+    def alpha101_18(self):
+        """Alpha101-18: 收盘价与开盘价差值的波动、相关性组合排名负值"""
+        df = self.df
+        diff = df['close_hfq'] - df['open_hfq']
+        std5 = diff.abs().rolling(5).std()
+        corr10 = df['close_hfq'].rolling(10).corr(df['open_hfq'])
+        # -1 * Rank(StdDev(Abs(Close - Open), 5) + (Close - Open) + Correlation(Close, Open, 10))
+        df['alpha101_18'] = (-(std5 + diff + corr10).rank(pct=True)).fillna(0)
+        return df[['alpha101_18']]
+
+    def alpha101_19(self):
+        """Alpha101-19: 复杂的趋势反转信号（简化版）"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        sum_ret250 = returns.rolling(250).sum()
+        delta_close7 = df['close_hfq'].diff(7)
+        # 简化实现：基于趋势强度和反转信号
+        trend_strength = np.sign(df['close_hfq'] - df['close_hfq'].shift(7))
+        reversal = -np.sign(delta_close7)
+        df['alpha101_19'] = (trend_strength * (1 + sum_ret250.rank(pct=True)) +
+                             reversal * df['close_hfq'].rank(pct=True)).fillna(0)
+        return df[['alpha101_19']]
+
+    def alpha101_20(self):
+        """Alpha101-20: 开盘价与昨日高低价差值的排名乘积负值"""
+        df = self.df
+        # -1 * Rank(Open - Delay(High, 1)) * Rank(Open - Delay(Close, 1)) * Rank(Open - Delay(Low, 1))
+        part1 = (df['open_hfq'] - df['high_hfq'].shift(1)).rank(pct=True)
+        part2 = (df['open_hfq'] - df['close_hfq'].shift(1)).rank(pct=True)
+        part3 = (df['open_hfq'] - df['low_hfq'].shift(1)).rank(pct=True)
+        df['alpha101_20'] = (-part1 * part2 * part3).fillna(0)
+        return df[['alpha101_20']]
+
+    def alpha101_22(self):
+        """Alpha101-22: 最高价与成交量相关性变化与收盘价波动的乘积负值"""
+        df = self.df
+        corr5 = df['high_hfq'].rolling(5).corr(df['vol'])
+        delta_corr5 = corr5.diff(5)
+        std20 = df['close_hfq'].rolling(20).std()
+        # -1 * Delta(Correlation(High, Volume, 5), 5) * Rank(StdDev(Close, 20))
+        df['alpha101_22'] = (-delta_corr5 * std20.rank(pct=True)).fillna(0)
+        return df[['alpha101_22']]
+
+    def alpha101_23(self):
+        """Alpha101-23: 最高价突破20日均值的条件因子"""
+        df = self.df
+        sum_high20 = df['high_hfq'].rolling(20).sum() / 20
+        delta_high2 = df['high_hfq'].diff(2)
+        # (Sum(High, 20) / 20 < High) ? -1 * Delta(High, 2) : 0
+        condition = sum_high20 < df['high_hfq']
+        df['alpha101_23'] = np.where(condition, -delta_high2, 0).fillna(0)
+        return df[['alpha101_23']]
+
+    def alpha101_25(self):
+        """Alpha101-25: 收益率、成交量、VWAP、高低价差的排名乘积"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        adv20 = df['vol'].rolling(20).mean()
+        vwap = df['vwap'] if 'vwap' in df.columns else (df['amount_x'] / df['vol'] * 10)
+        # Rank(-1 * Returns * ADV20 * VWAP * (High - Close))
+        product = -returns * adv20 * vwap * (df['high_hfq'] - df['close_hfq'])
+        df['alpha101_25'] = product.rank(pct=True).fillna(0.5)
+        return df[['alpha101_25']]
+
+    def alpha101_33(self):
+        """Alpha101-33: 开盘价与收盘价比值的排名"""
+        df = self.df
+        # Rank(-1 * (1 - Open / Close))
+        ratio = 1 - df['open_hfq'] / df['close_hfq'].replace(0, np.nan)
+        df['alpha101_33'] = (-ratio).rank(pct=True).fillna(0.5)
+        return df[['alpha101_33']]
+
+    def alpha101_34(self):
+        """Alpha101-34: 收益率波动比率与收盘价变化的排名组合"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        std2 = returns.rolling(2).std()
+        std5 = returns.rolling(5).std()
+        delta_close = df['close_hfq'].diff(1)
+        # Rank(1 - Rank(StdDev(Returns, 2) / StdDev(Returns, 5)) + 1 - Rank(Delta(Close, 1)))
+        ratio = std2 / std5.replace(0, np.nan)
+        df['alpha101_34'] = ((1 - ratio.rank(pct=True)) + (1 - delta_close.rank(pct=True))).rank(pct=True).fillna(0.5)
+        return df[['alpha101_34']]
+
+    def alpha101_41(self):
+        """Alpha101-41: 最高价最低价几何平均与VWAP的差值"""
+        df = self.df
+        vwap = df['vwap'] if 'vwap' in df.columns else (df['amount_x'] / df['vol'] * 10)
+        # (High * Low) ^ 0.5 - VWAP
+        df['alpha101_41'] = ((df['high_hfq'] * df['low_hfq']) ** 0.5 - vwap).fillna(0)
+        return df[['alpha101_41']]
+
+    def alpha101_52(self):
+        """Alpha101-52: 最低价变化、收益率差、成交量排名的组合"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        sum_ret240 = returns.rolling(240).sum()
+        sum_ret20 = returns.rolling(20).sum()
+        ts_min_low5 = df['low_hfq'].rolling(5).min()
+        # ((-1 * Ts_Min(Low, 5) + Delay(Ts_Min(Low, 5), 5)) * Rank((Sum(Returns, 240) - Sum(Returns, 20)) / 220)) * Ts_Rank(Volume, 5)
+        part1 = -ts_min_low5 + ts_min_low5.shift(5)
+        part2 = ((sum_ret240 - sum_ret20) / 220).rank(pct=True)
+        part3 = self._ts_rank(df['vol'], 5)
+        df['alpha101_52'] = (part1 * part2 * part3).fillna(0)
+        return df[['alpha101_52']]
+
+    def alpha101_53(self):
+        """Alpha101-53: 收盘价在日内区间的位置变化"""
+        df = self.df
+        # -1 * Delta(((Close - Low) - (High - Close)) / (Close - Low), 9)
+        numerator = (df['close_hfq'] - df['low_hfq']) - (df['high_hfq'] - df['close_hfq'])
+        denominator = (df['close_hfq'] - df['low_hfq']).replace(0, np.nan)
+        ratio = numerator / denominator
+        df['alpha101_53'] = (-ratio.diff(9)).fillna(0)
+        return df[['alpha101_53']]
+
+    def alpha101_54(self):
+        """Alpha101-54: 开盘价与收盘价的幂次比值"""
+        df = self.df
+        # (-1 * (Low - Close) * Open^5) / ((Low - High) * Close^5)
+        numerator = -1 * (df['low_hfq'] - df['close_hfq']) * (df['open_hfq'] ** 5)
+        denominator = (df['low_hfq'] - df['high_hfq']) * (df['close_hfq'] ** 5)
+        df['alpha101_54'] = (numerator / denominator.replace(0, np.nan)).fillna(0)
+        return df[['alpha101_54']]
+
+    def alpha101_57(self):
+        """Alpha101-57: 收盘价与VWAP差值与收盘价排名的线性衰减比值"""
+        df = self.df
+        vwap = df['vwap'] if 'vwap' in df.columns else (df['amount_x'] / df['vol'] * 10)
+        ts_argmax = self._ts_argmax(df['close_hfq'], 30)
+        # -(Close - VWAP) / Decay_Linear(Rank(Ts_ArgMax(Close, 30)), 2)
+        decay = ts_argmax.rank(pct=True).ewm(span=2, adjust=False).mean()
+        df['alpha101_57'] = (-(df['close_hfq'] - vwap) / decay.replace(0, np.nan)).fillna(0)
+        return df[['alpha101_57']]
+
+    def alpha101_101(self):
+        """Alpha101-101: 收盘价与开盘价差值占日内振幅的比例"""
+        df = self.df
+        # (Close - Open) / ((High - Low) + 0.001)
+        numerator = df['close_hfq'] - df['open_hfq']
+        denominator = (df['high_hfq'] - df['low_hfq']) + 0.001
+        df['alpha101_101'] = (numerator / denominator).fillna(0)
+        return df[['alpha101_101']]
+
+    # ------------------------------------------------------------------ #
+    #  Size 规模因子                                                        #
+    # ------------------------------------------------------------------ #
+
+    def size(self):
+        """
+        总市值因子：计算总市值的负对数,用于衡量公司规模。
+        Size = -log(TotalShares * ClosePrice / 1e6)
+        该因子值为负对数形式,值越小表示市值越大。
+        """
+        df = self.df
+        if 'total_mv' in df.columns:
+            # total_mv单位为万元,转换为亿元
+            df['size'] = -np.log(df['total_mv'] / 100).fillna(0)
+        else:
+            df['size'] = 0
+        return df[['size']]
+
+    def float_size(self):
+        """
+        流通市值因子：计算流通市值的负对数,用于衡量公司可交易部分的规模。
+        FloatSize = -log(FloatShares * ClosePrice / 1e6)
+        该因子值为负对数形式,值越小表示流通市值越大。
+        """
+        df = self.df
+        if 'circ_mv' in df.columns:
+            # circ_mv单位为万元,转换为亿元
+            df['float_size'] = -np.log(df['circ_mv'] / 100).fillna(0)
+        else:
+            df['float_size'] = 0
+        return df[['float_size']]
+
+    # ------------------------------------------------------------------ #
+    #  Value 价值因子                                                       #
+    # ------------------------------------------------------------------ #
+
+    def earnings_to_price(self):
+        """
+        市盈率倒数(E/P)：归母净利润TTM / 市值
+        earnings_to_price = EPS_TTM / ClosePrice
+        越高说明股票越"便宜"(价值越高)。
+        """
+        df = self.df
+        if 'eps' in df.columns and 'close_x' in df.columns:
+            df['earnings_to_price'] = (df['eps'] / df['close_x'].replace(0, np.nan)).fillna(0)
+        else:
+            df['earnings_to_price'] = 0
+        return df[['earnings_to_price']]
+
+    def book_to_market(self):
+        """
+        账面市值比(B/M)：账面价值 / 市值
+        book_to_market = (归母股东权益 + 递延所得税资产) / (收盘价 × 总股本)
+        越高说明股票越"便宜"(价值越高)。
+        """
+        df = self.df
+        if 'total_hldr_eqy_exc_min_int' in df.columns and 'total_mv' in df.columns:
+            # total_mv单位为万元,转换为元; total_hldr_eqy_exc_min_int单位为元
+            market_cap = df['total_mv'] * 10000
+            df['book_to_market'] = (df['total_hldr_eqy_exc_min_int'] / market_cap.replace(0, np.nan)).fillna(0)
+        else:
+            df['book_to_market'] = 0
+        return df[['book_to_market']]
+
+    def ocf_to_market(self):
+        """
+        经营现金流市值比：NetOperateCashFlow_TTM / 市值
+        越高说明每单位市值对应的经营活动现金流越多。
+        """
+        df = self.df
+        if 'n_cashflow_act' in df.columns and 'total_mv' in df.columns:
+            market_cap = df['total_mv'] * 10000
+            df['ocf_to_market'] = (df['n_cashflow_act'] / market_cap.replace(0, np.nan)).fillna(0)
+        else:
+            df['ocf_to_market'] = 0
+        return df[['ocf_to_market']]
+
+    def fcf_to_market(self):
+        """
+        自由现金流市值比：自由现金流TTM / 市值
+        fcf_to_market = (NOCF_TTM - SICO_TTM) / (ClosePrice × TotalShares)
+        越高说明公司的自由现金流创造能力越强。
+        """
+        df = self.df
+        if 'free_cashflow' in df.columns and 'total_mv' in df.columns:
+            market_cap = df['total_mv'] * 10000
+            df['fcf_to_market'] = (df['free_cashflow'] / market_cap.replace(0, np.nan)).fillna(0)
+        else:
+            df['fcf_to_market'] = 0
+        return df[['fcf_to_market']]
+
+    def sales_to_market(self):
+        """
+        营业收入市值比：营业收入Q / 市值
+        越高说明每单位市值对应的营业收入越多。
+        """
+        df = self.df
+        if 'total_revenue' in df.columns and 'total_mv' in df.columns:
+            market_cap = df['total_mv'] * 10000
+            df['sales_to_market'] = (df['total_revenue'] / market_cap.replace(0, np.nan)).fillna(0)
+        else:
+            df['sales_to_market'] = 0
+        return df[['sales_to_market']]
+
+    # ------------------------------------------------------------------ #
+    #  Reversal 反转因子                                                    #
+    # ------------------------------------------------------------------ #
+
+    def small_cap_reversal_21d(self, window=21):
+        """
+        小盘反转因子：选市值最小的股票,取过去21日累计收益的反转信号。
+        市值越小、前期涨幅越低的股票得分越高。
+        """
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        cum_return = (1 + returns).rolling(window).apply(lambda x: x.prod() - 1, raw=False)
+        if 'circ_mv' in df.columns:
+            # 市值越小、收益越低,得分越高
+            df['small_cap_reversal_21d'] = (-cum_return / df['circ_mv'].replace(0, np.nan)).fillna(0)
+        else:
+            df['small_cap_reversal_21d'] = -cum_return.fillna(0)
+        return df[['small_cap_reversal_21d']]
+
+    def price_dist(self, window=0):
+        """
+        价格距离因子：计算股价与其下一个整数(或10、100的倍数)的距离。
+        捕捉价格的心理整数关口效应。
+        """
+        df = self.df
+        price = df['close_hfq']
+
+        def calc_dist(p):
+            if p < 10:
+                return np.ceil(p) - p
+            elif p < 100:
+                return np.ceil(p / 10) * 10 - p
+            else:
+                return np.ceil(p / 100) * 100 - p
+
+        df['price_dist'] = price.apply(calc_dist)
+        if window > 0:
+            df['price_dist'] = df['price_dist'].rolling(window).mean()
+        return df[['price_dist']]
+
+    # ------------------------------------------------------------------ #
+    #  Momentum 动量因子(补充)                                              #
+    # ------------------------------------------------------------------ #
+
+    def return_5d(self, window=5):
+        """5日累计收益率"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_5d'] = ((1 + returns).rolling(window).apply(lambda x: x.prod() - 1, raw=False)).fillna(0)
+        return df[['return_5d']]
+
+    def return_21d(self, window=21):
+        """21日累计收益率"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_21d'] = ((1 + returns).rolling(window).apply(lambda x: x.prod() - 1, raw=False)).fillna(0)
+        return df[['return_21d']]
+
+    def return_42d(self, window=42):
+        """42日累计收益率"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_42d'] = ((1 + returns).rolling(window).apply(lambda x: x.prod() - 1, raw=False)).fillna(0)
+        return df[['return_42d']]
+
+    def return_63d(self, window=63):
+        """63日累计收益率"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_63d'] = ((1 + returns).rolling(window).apply(lambda x: x.prod() - 1, raw=False)).fillna(0)
+        return df[['return_63d']]
+
+    def return_126d(self, window=126):
+        """126日累计收益率"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_126d'] = ((1 + returns).rolling(window).apply(lambda x: x.prod() - 1, raw=False)).fillna(0)
+        return df[['return_126d']]
+
+    def return_252d(self, window=252):
+        """252日累计收益率"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_252d'] = ((1 + returns).rolling(window).apply(lambda x: x.prod() - 1, raw=False)).fillna(0)
+        return df[['return_252d']]
+
+    def ma_20d(self, window=20):
+        """20日移动平均线"""
+        df = self.df
+        df['ma_20d'] = df['close_hfq'].rolling(window).mean().fillna(0)
+        return df[['ma_20d']]
+
+    def price_position_ir_60d(self, window=60):
+        """
+        价格位置动量因子：计算过去60日(收盘-开盘)/(最高-最低)比率的信息比率。
+        Factor = Mean(Ratio, 60) / StdDev(Ratio, 60)
+        """
+        df = self.df
+        ratio = (df['close_hfq'] - df['open_hfq']) / (df['high_hfq'] - df['low_hfq']).replace(0, np.nan)
+        mean_ratio = ratio.rolling(window).mean()
+        std_ratio = ratio.rolling(window).std()
+        df['price_position_ir_60d'] = (mean_ratio / std_ratio.replace(0, np.nan)).fillna(0)
+        return df[['price_position_ir_60d']]
+
+    def rsrs(self, regress_window=18, zscore_window=200):
+        """
+        RSRS指标：通过回归最高价和最低价得到斜率,再对斜率进行标准化。
+        1. Slope_t = Beta from OLS(Low ~ High), N=18
+        2. RSRS_t = Z-Score(Slope_{t-M+1:t}), M=200
+        """
+        df = self.df
+        # 滚动回归计算斜率
+        slopes = []
+        for i in range(len(df)):
+            if i < regress_window - 1:
+                slopes.append(np.nan)
+                continue
+            high = df['high_hfq'].iloc[i-regress_window+1:i+1].values
+            low = df['low_hfq'].iloc[i-regress_window+1:i+1].values
+            if len(high) < 2 or np.std(high) == 0:
+                slopes.append(np.nan)
+                continue
+            # 简单线性回归
+            slope = np.polyfit(high, low, 1)[0]
+            slopes.append(slope)
+
+        slope_series = pd.Series(slopes, index=df.index)
+        # Z-Score标准化
+        mean_slope = slope_series.rolling(zscore_window).mean()
+        std_slope = slope_series.rolling(zscore_window).std()
+        df['rsrs'] = ((slope_series - mean_slope) / std_slope.replace(0, np.nan)).fillna(0)
+        return df[['rsrs']]
+
+    def days_down_up(self):
+        """
+        连续涨跌天数因子：计算连续上涨天数与连续下跌天数之差的绝对值减1。
+        Factor = |ConsecutiveUp - ConsecutiveDown - 1|
+        """
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+
+        # 计算连续上涨天数
+        up_streak = []
+        current_up = 0
+        for r in returns:
+            if pd.isna(r):
+                up_streak.append(0)
+                continue
+            if r > 0:
+                current_up += 1
+            else:
+                current_up = 0
+            up_streak.append(current_up)
+
+        # 计算连续下跌天数
+        down_streak = []
+        current_down = 0
+        for r in returns:
+            if pd.isna(r):
+                down_streak.append(0)
+                continue
+            if r < 0:
+                current_down += 1
+            else:
+                current_down = 0
+            down_streak.append(current_down)
+
+        df['days_down_up'] = (pd.Series(up_streak, index=df.index) -
+                              pd.Series(down_streak, index=df.index)).abs() - 1
+        df['days_down_up'] = df['days_down_up'].fillna(0)
+        return df[['days_down_up']]
+
+    # ------------------------------------------------------------------ #
+    #  Risk 风险因子                                                        #
+    # ------------------------------------------------------------------ #
+
+    def return_std_21d(self, window=21):
+        """21日收益率标准差"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_std_21d'] = returns.rolling(window).std().fillna(0)
+        return df[['return_std_21d']]
+
+    def return_std_42d(self, window=42):
+        """42日收益率标准差"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_std_42d'] = returns.rolling(window).std().fillna(0)
+        return df[['return_std_42d']]
+
+    def return_std_63d(self, window=63):
+        """63日收益率标准差"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_std_63d'] = returns.rolling(window).std().fillna(0)
+        return df[['return_std_63d']]
+
+    def return_std_126d(self, window=126):
+        """126日收益率标准差"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_std_126d'] = returns.rolling(window).std().fillna(0)
+        return df[['return_std_126d']]
+
+    def return_std_252d(self, window=252):
+        """252日收益率标准差"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        df['return_std_252d'] = returns.rolling(window).std().fillna(0)
+        return df[['return_std_252d']]
+
+    def sharpe_60d(self, window=60):
+        """60日夏普比率：Mean(Return, 60) / StdDev(Return, 60)"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        mean_ret = returns.rolling(window).mean()
+        std_ret = returns.rolling(window).std()
+        df['sharpe_60d'] = (mean_ret / std_ret.replace(0, np.nan)).fillna(0)
+        return df[['sharpe_60d']]
+
+    def sharpe_750d(self, window=750):
+        """750日夏普比率"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        mean_ret = returns.rolling(window).mean()
+        std_ret = returns.rolling(window).std()
+        df['sharpe_750d'] = (mean_ret / std_ret.replace(0, np.nan)).fillna(0)
+        return df[['sharpe_750d']]
+
+    def adjusted_sharpe_750d(self, window=750):
+        """750日调整夏普率：Mean / Std^4,对高波动性惩罚更重"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        mean_ret = returns.rolling(window).mean()
+        std_ret = returns.rolling(window).std()
+        df['adjusted_sharpe_750d'] = (mean_ret / (std_ret ** 4).replace(0, np.nan)).fillna(0)
+        return df[['adjusted_sharpe_750d']]
+
+    def high_low_21d(self, window=21):
+        """21日净值曲线最高点与最低点的比值"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        net_value = (1 + returns).cumprod()
+        rolling_max = net_value.rolling(window).max()
+        rolling_min = net_value.rolling(window).min()
+        df['high_low_21d'] = (rolling_max / rolling_min.replace(0, np.nan)).fillna(1)
+        return df[['high_low_21d']]
+
+    def high_low_42d(self, window=42):
+        """42日净值曲线最高点与最低点的比值"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        net_value = (1 + returns).cumprod()
+        rolling_max = net_value.rolling(window).max()
+        rolling_min = net_value.rolling(window).min()
+        df['high_low_42d'] = (rolling_max / rolling_min.replace(0, np.nan)).fillna(1)
+        return df[['high_low_42d']]
+
+    def high_low_63d(self, window=63):
+        """63日净值曲线最高点与最低点的比值"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        net_value = (1 + returns).cumprod()
+        rolling_max = net_value.rolling(window).max()
+        rolling_min = net_value.rolling(window).min()
+        df['high_low_63d'] = (rolling_max / rolling_min.replace(0, np.nan)).fillna(1)
+        return df[['high_low_63d']]
+
+    def high_low_126d(self, window=126):
+        """126日净值曲线最高点与最低点的比值"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        net_value = (1 + returns).cumprod()
+        rolling_max = net_value.rolling(window).max()
+        rolling_min = net_value.rolling(window).min()
+        df['high_low_126d'] = (rolling_max / rolling_min.replace(0, np.nan)).fillna(1)
+        return df[['high_low_126d']]
+
+    def high_low_252d(self, window=252):
+        """252日净值曲线最高点与最低点的比值"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        net_value = (1 + returns).cumprod()
+        rolling_max = net_value.rolling(window).max()
+        rolling_min = net_value.rolling(window).min()
+        df['high_low_252d'] = (rolling_max / rolling_min.replace(0, np.nan)).fillna(1)
+        return df[['high_low_252d']]
+
+    def days_beyond_upper_lower_21d(self, window=21):
+        """
+        21日内价格超越均值±标准差的天数之差。
+        Factor = Upper - Lower
+        """
+        df = self.df
+        mean_price = df['close_hfq'].rolling(window).mean()
+        std_price = df['close_hfq'].rolling(window).std()
+        upper = mean_price + std_price
+        lower = mean_price - std_price
+
+        beyond_upper = (df['close_hfq'] > upper).astype(int).rolling(window).sum()
+        beyond_lower = (df['close_hfq'] < lower).astype(int).rolling(window).sum()
+        df['days_beyond_upper_lower_21d'] = (beyond_upper - beyond_lower).fillna(0)
+        return df[['days_beyond_upper_lower_21d']]
+
+    def log_price(self):
+        """收盘价的自然对数"""
+        df = self.df
+        df['log_price'] = np.log(df['close_hfq'].replace(0, np.nan)).fillna(0)
+        return df[['log_price']]
+
+    # ------------------------------------------------------------------ #
+    #  Liquidity 流动性因子                                                 #
+    # ------------------------------------------------------------------ #
+
+    def avg_turnover_5d(self, window=5):
+        """5日平均换手率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['avg_turnover_5d'] = df['turnover_rate_x'].rolling(window).mean().fillna(0)
+        else:
+            df['avg_turnover_5d'] = 0
+        return df[['avg_turnover_5d']]
+
+    def avg_turnover_10d(self, window=10):
+        """10日平均换手率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['avg_turnover_10d'] = df['turnover_rate_x'].rolling(window).mean().fillna(0)
+        else:
+            df['avg_turnover_10d'] = 0
+        return df[['avg_turnover_10d']]
+
+    def avg_turnover_20d(self, window=20):
+        """20日平均换手率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['avg_turnover_20d'] = df['turnover_rate_x'].rolling(window).mean().fillna(0)
+        else:
+            df['avg_turnover_20d'] = 0
+        return df[['avg_turnover_20d']]
+
+    def amount_ma_20d(self, window=20):
+        """20日成交额移动平均"""
+        df = self.df
+        if 'amount_x' in df.columns:
+            df['amount_ma_20d'] = df['amount_x'].rolling(window).mean().fillna(0)
+        else:
+            df['amount_ma_20d'] = 0
+        return df[['amount_ma_20d']]
+
+    def turnover_ma_20d(self, window=20):
+        """20日成交量与流通市值比率的移动平均"""
+        df = self.df
+        if 'vol' in df.columns and 'circ_mv' in df.columns:
+            vol_cap_ratio = df['vol'] / df['circ_mv'].replace(0, np.nan)
+            df['turnover_ma_20d'] = -vol_cap_ratio.rolling(window).mean().fillna(0)
+        else:
+            df['turnover_ma_20d'] = 0
+        return df[['turnover_ma_20d']]
+
+    def sum_abs_rtn_amount_20d(self, window=20):
+        """20日累计绝对收益率与累计成交额的比值"""
+        df = self.df
+        returns = df['close_hfq'].pct_change()
+        abs_ret_sum = returns.abs().rolling(window).sum()
+        if 'amount_x' in df.columns:
+            amount_sum = df['amount_x'].rolling(window).sum()
+            df['sum_abs_rtn_amount_20d'] = (abs_ret_sum / amount_sum.replace(0, np.nan)).fillna(0)
+        else:
+            df['sum_abs_rtn_amount_20d'] = 0
+        return df[['sum_abs_rtn_amount_20d']]
+
+    def std_turnover_21d(self, window=21):
+        """21日换手率滚动标准差"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['std_turnover_21d'] = df['turnover_rate_x'].rolling(window).std().fillna(0)
+        else:
+            df['std_turnover_21d'] = 0
+        return df[['std_turnover_21d']]
+
+    def avg_turnover_21d(self, window=21):
+        """21日平均换手率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['avg_turnover_21d'] = df['turnover_rate_x'].rolling(window).mean().fillna(0)
+        else:
+            df['avg_turnover_21d'] = 0
+        return df[['avg_turnover_21d']]
+
+    def std_turnover_42d(self, window=42):
+        """42日换手率滚动标准差"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['std_turnover_42d'] = df['turnover_rate_x'].rolling(window).std().fillna(0)
+        else:
+            df['std_turnover_42d'] = 0
+        return df[['std_turnover_42d']]
+
+    def avg_turnover_42d(self, window=42):
+        """42日平均换手率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['avg_turnover_42d'] = df['turnover_rate_x'].rolling(window).mean().fillna(0)
+        else:
+            df['avg_turnover_42d'] = 0
+        return df[['avg_turnover_42d']]
+
+    def std_turnover_63d(self, window=63):
+        """63日换手率滚动标准差"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['std_turnover_63d'] = df['turnover_rate_x'].rolling(window).std().fillna(0)
+        else:
+            df['std_turnover_63d'] = 0
+        return df[['std_turnover_63d']]
+
+    def avg_turnover_63d(self, window=63):
+        """63日平均换手率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['avg_turnover_63d'] = df['turnover_rate_x'].rolling(window).mean().fillna(0)
+        else:
+            df['avg_turnover_63d'] = 0
+        return df[['avg_turnover_63d']]
+
+    def std_turnover_126d(self, window=126):
+        """126日换手率滚动标准差"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['std_turnover_126d'] = df['turnover_rate_x'].rolling(window).std().fillna(0)
+        else:
+            df['std_turnover_126d'] = 0
+        return df[['std_turnover_126d']]
+
+    def avg_turnover_126d(self, window=126):
+        """126日平均换手率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['avg_turnover_126d'] = df['turnover_rate_x'].rolling(window).mean().fillna(0)
+        else:
+            df['avg_turnover_126d'] = 0
+        return df[['avg_turnover_126d']]
+
+    def std_turnover_252d(self, window=252):
+        """252日换手率滚动标准差"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['std_turnover_252d'] = df['turnover_rate_x'].rolling(window).std().fillna(0)
+        else:
+            df['std_turnover_252d'] = 0
+        return df[['std_turnover_252d']]
+
+    def avg_turnover_252d(self, window=252):
+        """252日平均换手率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            df['avg_turnover_252d'] = df['turnover_rate_x'].rolling(window).mean().fillna(0)
+        else:
+            df['avg_turnover_252d'] = 0
+        return df[['avg_turnover_252d']]
+
+    def bias_turn_21d_252d(self):
+        """21日平均换手率与252日平均换手率的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            ma_short = df['turnover_rate_x'].rolling(21).mean()
+            ma_long = df['turnover_rate_x'].rolling(252).mean()
+            df['bias_turn_21d_252d'] = (ma_short / ma_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_turn_21d_252d'] = 0
+        return df[['bias_turn_21d_252d']]
+
+    def bias_std_turn_21d_252d(self):
+        """21日换手率标准差与252日换手率标准差的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            std_short = df['turnover_rate_x'].rolling(21).std()
+            std_long = df['turnover_rate_x'].rolling(252).std()
+            df['bias_std_turn_21d_252d'] = (std_short / std_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_std_turn_21d_252d'] = 0
+        return df[['bias_std_turn_21d_252d']]
+
+    def bias_turn_42d_252d(self):
+        """42日平均换手率与252日平均换手率的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            ma_short = df['turnover_rate_x'].rolling(42).mean()
+            ma_long = df['turnover_rate_x'].rolling(252).mean()
+            df['bias_turn_42d_252d'] = (ma_short / ma_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_turn_42d_252d'] = 0
+        return df[['bias_turn_42d_252d']]
+
+    def bias_turn_63d_252d(self):
+        """63日平均换手率与252日平均换手率的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            ma_short = df['turnover_rate_x'].rolling(63).mean()
+            ma_long = df['turnover_rate_x'].rolling(252).mean()
+            df['bias_turn_63d_252d'] = (ma_short / ma_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_turn_63d_252d'] = 0
+        return df[['bias_turn_63d_252d']]
+
+    def bias_turn_126d_252d(self):
+        """126日平均换手率与252日平均换手率的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            ma_short = df['turnover_rate_x'].rolling(126).mean()
+            ma_long = df['turnover_rate_x'].rolling(252).mean()
+            df['bias_turn_126d_252d'] = (ma_short / ma_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_turn_126d_252d'] = 0
+        return df[['bias_turn_126d_252d']]
+
+    def bias_turn_21d_504d(self):
+        """21日平均换手率与504日平均换手率的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            ma_short = df['turnover_rate_x'].rolling(21).mean()
+            ma_long = df['turnover_rate_x'].rolling(504).mean()
+            df['bias_turn_21d_504d'] = (ma_short / ma_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_turn_21d_504d'] = 0
+        return df[['bias_turn_21d_504d']]
+
+    def bias_std_turn_21d_504d(self):
+        """21日换手率标准差与504日换手率标准差的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            std_short = df['turnover_rate_x'].rolling(21).std()
+            std_long = df['turnover_rate_x'].rolling(504).std()
+            df['bias_std_turn_21d_504d'] = (std_short / std_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_std_turn_21d_504d'] = 0
+        return df[['bias_std_turn_21d_504d']]
+
+    def bias_turn_42d_504d(self):
+        """42日平均换手率与504日平均换手率的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            ma_short = df['turnover_rate_x'].rolling(42).mean()
+            ma_long = df['turnover_rate_x'].rolling(504).mean()
+            df['bias_turn_42d_504d'] = (ma_short / ma_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_turn_42d_504d'] = 0
+        return df[['bias_turn_42d_504d']]
+
+    def bias_std_turn_42d_504d(self):
+        """42日换手率标准差与504日换手率标准差的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            std_short = df['turnover_rate_x'].rolling(42).std()
+            std_long = df['turnover_rate_x'].rolling(504).std()
+            df['bias_std_turn_42d_504d'] = (std_short / std_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_std_turn_42d_504d'] = 0
+        return df[['bias_std_turn_42d_504d']]
+
+    def bias_turn_63d_504d(self):
+        """63日平均换手率与504日平均换手率的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            ma_short = df['turnover_rate_x'].rolling(63).mean()
+            ma_long = df['turnover_rate_x'].rolling(504).mean()
+            df['bias_turn_63d_504d'] = (ma_short / ma_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_turn_63d_504d'] = 0
+        return df[['bias_turn_63d_504d']]
+
+    def bias_std_turn_63d_504d(self):
+        """63日换手率标准差与504日换手率标准差的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            std_short = df['turnover_rate_x'].rolling(63).std()
+            std_long = df['turnover_rate_x'].rolling(504).std()
+            df['bias_std_turn_63d_504d'] = (std_short / std_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_std_turn_63d_504d'] = 0
+        return df[['bias_std_turn_63d_504d']]
+
+    def bias_turn_126d_504d(self):
+        """126日平均换手率与504日平均换手率的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            ma_short = df['turnover_rate_x'].rolling(126).mean()
+            ma_long = df['turnover_rate_x'].rolling(504).mean()
+            df['bias_turn_126d_504d'] = (ma_short / ma_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_turn_126d_504d'] = 0
+        return df[['bias_turn_126d_504d']]
+
+    def bias_std_turn_126d_504d(self):
+        """126日换手率标准差与504日换手率标准差的乖离率"""
+        df = self.df
+        if 'turnover_rate_x' in df.columns:
+            std_short = df['turnover_rate_x'].rolling(126).std()
+            std_long = df['turnover_rate_x'].rolling(504).std()
+            df['bias_std_turn_126d_504d'] = (std_short / std_long.replace(0, np.nan) - 1).fillna(0)
+        else:
+            df['bias_std_turn_126d_504d'] = 0
+        return df[['bias_std_turn_126d_504d']]
+
+    def turnover_ma_20d_120d(self):
+        """20日成交量与流通市值比率与120日的比值"""
+        df = self.df
+        if 'vol' in df.columns and 'circ_mv' in df.columns:
+            vol_cap_ratio = df['vol'] / df['circ_mv'].replace(0, np.nan)
+            ma_short = vol_cap_ratio.rolling(20).mean()
+            ma_long = vol_cap_ratio.rolling(120).mean()
+            df['turnover_ma_20d_120d'] = (ma_short / ma_long.replace(0, np.nan)).fillna(0)
+        else:
+            df['turnover_ma_20d_120d'] = 0
+        return df[['turnover_ma_20d_120d']]
+
+    # ------------------------------------------------------------------ #
+    #  Quality 质量因子                                                     #
+    # ------------------------------------------------------------------ #
+
+    def roe_ttm(self):
+        """TTM净资产收益率"""
+        df = self.df
+        if 'roe_ttm' in df.columns:
+            df['roe_ttm'] = df['roe_ttm'].fillna(0)
+        else:
+            df['roe_ttm'] = 0
+        return df[['roe_ttm']]
+
+    def roa_ttm(self):
+        """TTM总资产收益率"""
+        df = self.df
+        if 'total_assets' in df.columns and 'n_income' in df.columns:
+            df['roa_ttm'] = (df['n_income'] / df['total_assets'].replace(0, np.nan)).fillna(0)
+        else:
+            df['roa_ttm'] = 0
+        return df[['roa_ttm']]
+
+    def gross_margin(self):
+        """毛利率"""
+        df = self.df
+        if 'gross_margin' in df.columns:
+            df['gross_margin'] = df['gross_margin'].fillna(0)
+        else:
+            df['gross_margin'] = 0
+        return df[['gross_margin']]
+
+    def net_margin(self):
+        """净利率"""
+        df = self.df
+        if 'total_revenue' in df.columns and 'n_income' in df.columns:
+            df['net_margin'] = (df['n_income'] / df['total_revenue'].replace(0, np.nan)).fillna(0)
+        else:
+            df['net_margin'] = 0
+        return df[['net_margin']]
+
+    def debt_to_assets(self):
+        """资产负债率"""
+        df = self.df
+        if 'debt_ratio' in df.columns:
+            df['debt_to_assets'] = df['debt_ratio'].fillna(0)
+        else:
+            df['debt_to_assets'] = 0
+        return df[['debt_to_assets']]
+
+    def current_ratio(self):
+        """流动比率"""
+        df = self.df
+        if 'total_cur_assets' in df.columns and 'total_cur_liab' in df.columns:
+            df['current_ratio'] = (df['total_cur_assets'] / df['total_cur_liab'].replace(0, np.nan)).fillna(0)
+        else:
+            df['current_ratio'] = 0
+        return df[['current_ratio']]
+
+    def quick_ratio(self):
+        """速动比率"""
+        df = self.df
+        if 'total_cur_assets' in df.columns and 'inventories' in df.columns and 'total_cur_liab' in df.columns:
+            df['quick_ratio'] = ((df['total_cur_assets'] - df['inventories']) /
+                                 df['total_cur_liab'].replace(0, np.nan)).fillna(0)
+        else:
+            df['quick_ratio'] = 0
+        return df[['quick_ratio']]
+
+    def cash_flow_to_debt(self):
+        """现金流负债比"""
+        df = self.df
+        if 'n_cashflow_act' in df.columns and 'total_liab' in df.columns:
+            df['cash_flow_to_debt'] = (df['n_cashflow_act'] / df['total_liab'].replace(0, np.nan)).fillna(0)
+        else:
+            df['cash_flow_to_debt'] = 0
+        return df[['cash_flow_to_debt']]
+
+    def accruals(self):
+        """应计项目"""
+        df = self.df
+        if 'accruals' in df.columns:
+            df['accruals'] = df['accruals'].fillna(0)
+        else:
+            df['accruals'] = 0
+        return df[['accruals']]
+
+    def earnings_quality(self):
+        """盈余质量：经营现金流/净利润"""
+        df = self.df
+        if 'n_cashflow_act' in df.columns and 'n_income' in df.columns:
+            df['earnings_quality'] = (df['n_cashflow_act'] / df['n_income'].replace(0, np.nan)).fillna(0)
+        else:
+            df['earnings_quality'] = 0
+        return df[['earnings_quality']]
+
+    # ------------------------------------------------------------------ #
+    #  Growth 成长因子                                                      #
+    # ------------------------------------------------------------------ #
+
+    def revenue_growth_yoy(self):
+        """营收同比增长率"""
+        df = self.df
+        if 'revenue_growth_yoy' in df.columns:
+            df['revenue_growth_yoy'] = df['revenue_growth_yoy'].fillna(0)
+        else:
+            df['revenue_growth_yoy'] = 0
+        return df[['revenue_growth_yoy']]
+
+    def profit_growth_yoy(self):
+        """净利润同比增长率"""
+        df = self.df
+        if 'profit_growth_yoy' in df.columns:
+            df['profit_growth_yoy'] = df['profit_growth_yoy'].fillna(0)
+        else:
+            df['profit_growth_yoy'] = 0
+        return df[['profit_growth_yoy']]
+
+    def asset_growth_yoy(self):
+        """资产同比增长率"""
+        df = self.df
+        if 'asset_growth_yoy' in df.columns:
+            df['asset_growth_yoy'] = df['asset_growth_yoy'].fillna(0)
+        else:
+            df['asset_growth_yoy'] = 0
+        return df[['asset_growth_yoy']]
+
+    def roe_growth_yoy(self):
+        """ROE同比增长率"""
+        df = self.df
+        if 'roe_ttm' in df.columns:
+            roe_current = df['roe_ttm']
+            roe_prev = df['roe_ttm'].shift(252)
+            df['roe_growth_yoy'] = ((roe_current - roe_prev) / roe_prev.abs().replace(0, np.nan)).fillna(0)
+        else:
+            df['roe_growth_yoy'] = 0
+        return df[['roe_growth_yoy']]
+
+    def eps_growth_yoy(self):
+        """EPS同比增长率"""
+        df = self.df
+        if 'eps' in df.columns:
+            eps_current = df['eps']
+            eps_prev = df['eps'].shift(252)
+            df['eps_growth_yoy'] = ((eps_current - eps_prev) / eps_prev.abs().replace(0, np.nan)).fillna(0)
+        else:
+            df['eps_growth_yoy'] = 0
+        return df[['eps_growth_yoy']]
+
+    def revenue_growth_qoq(self):
+        """营收环比增长率"""
+        df = self.df
+        if 'total_revenue' in df.columns:
+            rev_current = df['total_revenue']
+            rev_prev = df['total_revenue'].shift(63)
+            df['revenue_growth_qoq'] = ((rev_current - rev_prev) / rev_prev.abs().replace(0, np.nan)).fillna(0)
+        else:
+            df['revenue_growth_qoq'] = 0
+        return df[['revenue_growth_qoq']]
+
+    def profit_growth_qoq(self):
+        """净利润环比增长率"""
+        df = self.df
+        if 'n_income' in df.columns:
+            profit_current = df['n_income']
+            profit_prev = df['n_income'].shift(63)
+            df['profit_growth_qoq'] = ((profit_current - profit_prev) / profit_prev.abs().replace(0, np.nan)).fillna(0)
+        else:
+            df['profit_growth_qoq'] = 0
+        return df[['profit_growth_qoq']]
+
+    def gross_margin_growth(self):
+        """毛利率增长率"""
+        df = self.df
+        if 'gross_margin' in df.columns:
+            gm_current = df['gross_margin']
+            gm_prev = df['gross_margin'].shift(252)
+            df['gross_margin_growth'] = ((gm_current - gm_prev) / gm_prev.abs().replace(0, np.nan)).fillna(0)
+        else:
+            df['gross_margin_growth'] = 0
+        return df[['gross_margin_growth']]
+
+    def net_margin_growth(self):
+        """净利率增长率"""
+        df = self.df
+        if 'total_revenue' in df.columns and 'n_income' in df.columns:
+            nm_current = df['n_income'] / df['total_revenue'].replace(0, np.nan)
+            nm_prev = (df['n_income'].shift(252) / df['total_revenue'].shift(252).replace(0, np.nan))
+            df['net_margin_growth'] = ((nm_current - nm_prev) / nm_prev.abs().replace(0, np.nan)).fillna(0)
+        else:
+            df['net_margin_growth'] = 0
+        return df[['net_margin_growth']]
+
+    def ocf_growth_yoy(self):
+        """经营现金流同比增长率"""
+        df = self.df
+        if 'n_cashflow_act' in df.columns:
+            ocf_current = df['n_cashflow_act']
+            ocf_prev = df['n_cashflow_act'].shift(252)
+            df['ocf_growth_yoy'] = ((ocf_current - ocf_prev) / ocf_prev.abs().replace(0, np.nan)).fillna(0)
+        else:
+            df['ocf_growth_yoy'] = 0
+        return df[['ocf_growth_yoy']]
+
+    def poly_shape(self, close_col='close_hfq', vol_col='vol', window=6):
         """
         对最近 window 天的价格和成交量拟合二次多项式，提取形状因子。
 
@@ -1013,6 +2370,57 @@ class FactorManager:
             self.turnover_amplitude_ratio, self.long_shadow_freq,
             self.doji_freq, self.intraday_drawdown, self.gap_vs_range_ratio,
             self.poly_shape,
+            # Alpha101因子
+            self.alpha101_1, self.alpha101_2, self.alpha101_3, self.alpha101_4,
+            self.alpha101_5, self.alpha101_6, self.alpha101_7, self.alpha101_8,
+            self.alpha101_9, self.alpha101_10, self.alpha101_11, self.alpha101_12,
+            self.alpha101_13, self.alpha101_14, self.alpha101_15, self.alpha101_16,
+            self.alpha101_17, self.alpha101_18, self.alpha101_19, self.alpha101_20,
+            self.alpha101_22, self.alpha101_23, self.alpha101_25, self.alpha101_33,
+            self.alpha101_34, self.alpha101_41, self.alpha101_52, self.alpha101_53,
+            self.alpha101_54, self.alpha101_57, self.alpha101_101,
+            # Size因子
+            self.size, self.float_size,
+            # Value因子
+            self.earnings_to_price, self.book_to_market, self.ocf_to_market,
+            self.fcf_to_market, self.sales_to_market,
+            # Reversal因子
+            self.small_cap_reversal_21d, self.price_dist,
+            # Momentum因子
+            self.return_5d, self.return_21d, self.return_42d, self.return_63d,
+            self.return_126d, self.return_252d, self.ma_20d, self.price_position_ir_60d,
+            self.rsrs, self.days_down_up,
+            # Risk因子
+            self.return_std_21d, self.return_std_42d, self.return_std_63d,
+            self.return_std_126d, self.return_std_252d,
+            self.sharpe_60d, self.sharpe_750d, self.adjusted_sharpe_750d,
+            self.high_low_21d, self.high_low_42d, self.high_low_63d,
+            self.high_low_126d, self.high_low_252d,
+            self.days_beyond_upper_lower_21d, self.log_price,
+            # Liquidity因子
+            self.avg_turnover_5d, self.avg_turnover_10d, self.avg_turnover_20d,
+            self.amount_ma_20d, self.turnover_ma_20d, self.sum_abs_rtn_amount_20d,
+            self.std_turnover_21d, self.avg_turnover_21d,
+            self.std_turnover_42d, self.avg_turnover_42d,
+            self.std_turnover_63d, self.avg_turnover_63d,
+            self.std_turnover_126d, self.avg_turnover_126d,
+            self.std_turnover_252d, self.avg_turnover_252d,
+            self.bias_turn_21d_252d, self.bias_std_turn_21d_252d,
+            self.bias_turn_42d_252d, self.bias_turn_63d_252d, self.bias_turn_126d_252d,
+            self.bias_turn_21d_504d, self.bias_std_turn_21d_504d,
+            self.bias_turn_42d_504d, self.bias_std_turn_42d_504d,
+            self.bias_turn_63d_504d, self.bias_std_turn_63d_504d,
+            self.bias_turn_126d_504d, self.bias_std_turn_126d_504d,
+            self.turnover_ma_20d_120d,
+            # Quality因子
+            self.roe_ttm, self.roa_ttm, self.gross_margin, self.net_margin,
+            self.debt_to_assets, self.current_ratio, self.quick_ratio,
+            self.cash_flow_to_debt, self.accruals, self.earnings_quality,
+            # Growth因子
+            self.revenue_growth_yoy, self.profit_growth_yoy, self.asset_growth_yoy,
+            self.roe_growth_yoy, self.eps_growth_yoy, self.revenue_growth_qoq,
+            self.profit_growth_qoq, self.gross_margin_growth, self.net_margin_growth,
+            self.ocf_growth_yoy,
             self.factor_time_series,
         ]
 

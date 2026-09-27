@@ -29,7 +29,7 @@ class LGBMRankerConfig:
         # 5档：Q1=0, Q2=1, Q3=2, Q4=3, Q5=4
         # LightGBM 默认 gain 公式 2^label-1：label=4 → gain=15，label=0 → gain=0
         # 这使模型把梯度集中在正确排出 Top-20% 上，与 Top-10 选股目标对齐
-        self.n_relevance_levels: int = 5
+        self.n_relevance_levels: int = 10
 
         # ---- 因子列（树模型直接使用原始值，无需标准化）----
         self.factor_cols: List[str] = [
@@ -53,10 +53,10 @@ class LGBMRankerConfig:
             'total_mv',
             'volatility_20d',
             'reversal_5d',
-            # 二值信号
+            # 二值信号（不做标准化）
             'macd_divergence',
             'macd_air_refuel',
-            # 基本面类
+            # 基本面类（行业+市值中性化后标准化）
             'gross_margin',
             'debt_ratio',
             'roe_ttm',
@@ -68,7 +68,7 @@ class LGBMRankerConfig:
             'close_to_vwap_ratio',
             'mtm_margin_balance_change',
             'big_order_ratio',
-            'lhb_strength_5d',
+            # 'lhb_strength_5d',
             'rzye',
             # Fama-French 风格因子
             'size_factor',
@@ -77,45 +77,82 @@ class LGBMRankerConfig:
             'cma_factor',
             'asset_growth_yoy',
             'momentum_12_1',
-            # 中短期动量 / 技术形态因子
+            # # 中短期动量 / 技术形态因子
             'ret_10d',
-            'ret_20d',
-            'ret_60d',
+            # 'ret_20d',
+            # 'ret_60d',
             'dist_52w_high',
             'close_ma20_ratio',
             'up_day_ratio_20',
             'vol_price_corr_20d',
             'adx',
-            # 高频痕迹因子
+            # # 高频痕迹因子
             'turnover_amplitude_ratio',
-            'long_shadow_freq',
-            'doji_freq',
-            'intraday_drawdown',
+            # 'long_shadow_freq',
+            # 'doji_freq',
+            # 'intraday_drawdown',
             'gap_vs_range_ratio',
+            # 高阶交叉因子
+            # 'smb_mom',
+            # 'smb_squared_mom',
+            # 'hml_rmw',
+            # 'smb_hml',
+            # 'vol_mom',
+            # 更多时序因子
+            'K_chg_5d',
+            'K_chg_10d',
+            'D_chg_5d',
+            'D_chg_10d',
+            'J_chg_5d',
+            'J_chg_10d',
+            # 'rsi_chg_5d',
+            'rsi_chg_10d',
+            'macd_chg_5d',
+            'macd_chg_10d',
+            'adx_chg_5d',
+            # 'adx_chg_10d',
+            'volatility_20d_chg_5d',
+            'volatility_20d_chg_10d',
+            'turnover_rate_x_chg_5d',
+            'turnover_rate_x_chg_10d',
+            'reversal_5d_chg_5d',
+            'reversal_5d_chg_10d',
+            'momentum_12_1_chg_5d',
+            # 'momentum_12_1_chg_10d',
+            'rzye_chg_5d',
+            'rzye_chg_10d',
+            # 多项式形状因子
+            'poly_close_a1',
+            'poly_close_a2',
+            # 'poly_vol_a1',
+            'poly_vol_a2',
         ]
 
         # ---- 滚动训练窗口（交易日数）----
-        self.window: int = 20
+        self.window: int = 80
 
         # ---- 时间衰减权重（半衰期；None 表示不使用）----
-        self.weight_halflife: Optional[int] = 20
+        self.weight_halflife: Optional[int] = None
 
         # ---- LGBMRanker 超参数 ----
         # label_gain=[0,1,2,3,4]：线性 gain 替代默认指数 [0,1,3,7,15]，
         # 避免 Top-20% 因涨停股极值而获得 15x 过大梯度权重
-        # lambdarank_truncation_level=400：宽截断，让模型学"广义强势"而非"涨停彩票"
+        # lambdarank_truncation_level=10：只优化前 10 名的排序，
+        # 与 Top-10 选股目标完全对齐，后面 3590 只的排序不影响梯度
         self.lgbm_params = {
-            'n_estimators'              : 150,
+            'objective'                 : 'lambdarank',
+            'metric'                    : 'ndcg',
+            'n_estimators'              : 70,
             'learning_rate'             : 0.05,
-            'max_depth'                 : 4,
-            'num_leaves'                : 15,
-            'min_child_samples'         : 50,
+            'max_depth'                 : 3,
+            'num_leaves'                : 7,
+            'min_child_samples'         : 200,
             'subsample'                 : 0.8,
             'colsample_bytree'          : 0.6,
             'reg_alpha'                 : 0.1,
             'reg_lambda'                : 1.0,
-            'lambdarank_truncation_level': 100,
-            'label_gain'                : [0, 1, 2, 3, 4],
+            'lambdarank_truncation_level': 10,
+            'label_gain'                : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             'n_jobs'                    : -1,
             'verbose'                   : -1,
             'random_state'              : 42,
@@ -321,6 +358,9 @@ class LGBMRankerStrategy(BaseStrategy):
         long_short_returns = []
         importance_history = {}
         ndcg_series        = []
+        
+        # 因子IC分析
+        factor_ic_series = {fc: [] for fc in self.cfg.factor_cols}
 
         for today in dates:
             ok = self.fit(today)
@@ -348,6 +388,12 @@ class LGBMRankerStrategy(BaseStrategy):
             # Rank IC（与实际涨幅的 Spearman 相关）
             ic = signals['score'].corr(signals[self.cfg.label_col], method='spearman')
             ic_series.append((today, ic))
+
+            # 计算每个因子的 IC
+            for fc in self.cfg.factor_cols:
+                if fc in signals.columns:
+                    factor_ic = signals[fc].corr(signals[self.cfg.label_col], method='spearman')
+                    factor_ic_series[fc].append((today, factor_ic))
 
             # NDCG@10：以实际涨幅排名作为相关度
             try:
@@ -409,11 +455,38 @@ class LGBMRankerStrategy(BaseStrategy):
         print("\n===== 特征重要度均值（Top 15）=====")
         print(weights_df.mean().sort_values(ascending=False).head(15))
 
+        # ---- 因子 IC 分析 ----
+        factor_ic_records = []
+        for fc in self.cfg.factor_cols:
+            if factor_ic_series[fc]:
+                ic_vals = pd.DataFrame(factor_ic_series[fc], columns=['date', 'ic']).set_index('date')['ic']
+                ic_mean = ic_vals.mean()
+                ic_std = ic_vals.std()
+                ir = ic_mean / ic_std if ic_std > 0 else 0.0
+                ic_pos_ratio = (ic_vals > 0).mean()
+                factor_ic_records.append({
+                    'factor': fc,
+                    'IC_mean': ic_mean,
+                    'IC_std': ic_std,
+                    'IR': ir,
+                    'IC>0_ratio': ic_pos_ratio
+                })
+        
+        factor_ic_df = pd.DataFrame(factor_ic_records).sort_values('IC_mean', ascending=False)
+        
+        print("\n===== 因子 IC 统计（Top 15）=====")
+        print(factor_ic_df.head(15).to_string(index=False))
+        
+        # 输出到文件
+        factor_ic_df.to_csv('factor_ic_analysis.csv', index=False)
+        print("\n因子 IC 分析已输出到 factor_ic_analysis.csv")
+
         result = {
             'ic_df'     : ic_df,
             'ls_df'     : ls_df,
             'weights_df': weights_df,
             'ndcg_df'   : ndcg_df,
+            'factor_ic_df': factor_ic_df,
         }
         self.report_dump(result, label_period=n)
         return result

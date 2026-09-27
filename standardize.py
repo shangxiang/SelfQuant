@@ -119,6 +119,7 @@ def standardize(incremental: bool = False):
         'ts_code', 'trade_date', 'name', 'reason',
         'pct_chg', 'pct_change', 'industry',
         'macd_air_refuel', 'macd_divergence', 'vol_breakout',
+        'adj_factor', 'close_hfq', 'open_hfq', 'high_hfq', 'low_hfq',
     ]
 
     should_neutralize = [

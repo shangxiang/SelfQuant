@@ -31,6 +31,7 @@ class BacktestEngine:
     """
 
     # 截面 CSV 中的收盘价列名（与 stock_list 合并后 close 变为 close_x）
+    # 注意：close_x 是不复权的真实交易价格，用于回测中的买卖执行
     PRICE_COL = 'close_x'
     # 股票代码列名，用于 DataFrame 索引和 position dict 的 key
     STOCK_COL = 'ts_code'

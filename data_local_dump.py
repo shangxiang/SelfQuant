@@ -21,6 +21,7 @@ class DownloadData:
     STOCK_LIST_PATH     = "data/raw/stock_list/stock_list.csv"
     TRADE_CAL_PATH      = "data/raw/trade_cal.csv"
     STOCK_DATA_DIR      = "data/raw/stock_data/"
+    ADJ_FACTOR_DIR      = "data/raw/adj_factor/"
     DAILY_BASIC_DIR     = "data/raw/daily_basic_data/"
     MONEYFLOW_DIR       = "data/raw/moneyflow/"
     MARGIN_DETAIL_DIR   = "data/raw/margin_detail/"
@@ -218,7 +219,7 @@ class DownloadData:
         combined.to_csv(path, index=False)
 
     def stock_data(self, start: str = START_DATE, end: str = END_DATE) -> None:
-        """下载每只股票的前复权日线行情，支持增量更新。"""
+        """下载每只股票的不复权日线行情，支持增量更新。"""
         self._ensure_dir(self.STOCK_DATA_DIR)
         for ts_code in self._get_stock_list():
             path = os.path.join(self.STOCK_DATA_DIR, f"{ts_code}.csv")
@@ -231,11 +232,32 @@ class DownloadData:
             else:
                 fetch_start = inc_start
                 existing = pd.read_csv(path, dtype={'trade_date': str})
-            df = self._call_with_retry(self.api.get_stock_data, code=ts_code, startdate=fetch_start, enddate=end)
+            df = self._call_with_retry(self.api.get_stock_data, code=ts_code, startdate=fetch_start, enddate=end, adj=None)
             time.sleep(0.4)
             if df is None or df.empty:
                 continue
             print(f"  stock_data {ts_code}  {fetch_start}~{end}  +{len(df)}行")
+            self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'trade_date'])
+
+    def adj_factor(self, start: str = START_DATE, end: str = END_DATE) -> None:
+        """下载每只股票的复权因子，支持增量更新。"""
+        self._ensure_dir(self.ADJ_FACTOR_DIR)
+        for ts_code in self._get_stock_list():
+            path = os.path.join(self.ADJ_FACTOR_DIR, f"{ts_code}.csv")
+            inc_start = self._incremental_start(path, 'trade_date')
+            if inc_start is None:
+                fetch_start = start
+                existing = None
+            elif inc_start > end:
+                continue   # 已是最新，无需更新
+            else:
+                fetch_start = inc_start
+                existing = pd.read_csv(path, dtype={'trade_date': str})
+            df = self._call_with_retry(self.api.get_adj_factor, code=ts_code, startdate=fetch_start, enddate=end)
+            time.sleep(0.4)
+            if df is None or df.empty:
+                continue
+            print(f"  adj_factor {ts_code}  {fetch_start}~{end}  +{len(df)}行")
             self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'trade_date'])
 
     def income(self, start: str = START_DATE, end: str = END_DATE) -> None:
@@ -341,7 +363,8 @@ if __name__ == '__main__':
     # d.top_list()
 
     # ③ 按股票下载（受 MAIN_BOARD_ONLY 控制，只处理主板）
-    # d.stock_data()
+    # d.stock_data()      # 不复权日线行情
+    # d.adj_factor()      # 复权因子（用于计算后复权价格）
     d.income()
     d.balancesheet()
     d.cashflow()

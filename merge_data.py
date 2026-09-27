@@ -171,7 +171,7 @@ def financial_data_preprocess():
 
 def merge_basic_daily_data():
     """
-    将每日截面数据（行情、基本面快照、融资融券、资金流、龙虎榜）按
+    将每日截面数据（行情、复权因子、基本面快照、融资融券、资金流、龙虎榜）按
     (ts_code, trade_date) 合并为宽表，增量追加到 data/final_result.csv。
 
     增量逻辑：读取 final_result.csv 中已有的最大 trade_date，
@@ -181,6 +181,7 @@ def merge_basic_daily_data():
 
     basic_daily_data_list = [
         "stock_data",
+        "adj_factor",
         "daily_basic_data",
         "margin_detail",
         "moneyflow",

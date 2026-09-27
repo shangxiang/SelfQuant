@@ -39,6 +39,9 @@ class ElasticNetConfig:
             'dv_ttm_standard',          # 股息率（TTM）
             # 技术类
             'macd_standard',            # MACD
+            'cci_standard',             # CCI
+            'force_index_smoothed_standard', # 力量指数（平滑）
+            'net_mf_amount_standard',     # 主力净流入
             'K_standard',
             'D_standard',
             'J_standard',
@@ -46,6 +49,7 @@ class ElasticNetConfig:
             'turnover_rate_x_standard', # 换手率
             'volume_ratio_standard',    # 量比
             'positive_flow_standard',   # 主力净流入
+            'negative_flow_standard',   # 主力净流出
             'total_mv_standard',        # 总市值
             'volatility_20d_standard',  # 20 日波动率
             'reversal_5d_standard',     # 5 日反转因子
@@ -65,6 +69,7 @@ class ElasticNetConfig:
             'mtm_margin_balance_change_standard',   # 融资余额动量
             'big_order_ratio_standard',     # 大单净流入
             'lhb_strength_5d_standard',     # 龙虎榜强度
+            'rzye_standard',                # 资产负债率（TTM）
             # Fama-French 风格因子
             'size_factor_standard',         # 规模因子（-ln 流通市值），直接 z-score
             'smb_squared_standard',         # 规模²，直接 z-score
@@ -93,6 +98,34 @@ class ElasticNetConfig:
             'doji_freq_standard',
             'intraday_drawdown_standard',
             'gap_vs_range_ratio_standard',
+            # 更多时序因子
+            'K_chg_5d_standard',
+            'K_chg_10d_standard',
+            'D_chg_5d_standard',   
+            'D_chg_10d_standard',   
+            'J_chg_5d_standard',   
+            'J_chg_10d_standard',
+            # 'rsi_chg_5d_standard',   
+            'rsi_chg_10d_standard',   
+            'macd_chg_5d_standard',  
+            'macd_chg_10d_standard',
+            'adx_chg_5d_standard',   
+            # 'adx_chg_10d_standard',
+            'volatility_20d_chg_5d_standard',   
+            'volatility_20d_chg_10d_standard',
+            'turnover_rate_x_chg_5d_standard',  
+            'turnover_rate_x_chg_10d_standard',
+            'reversal_5d_chg_5d_standard',   
+            'reversal_5d_chg_10d_standard',
+            'momentum_12_1_chg_5d_standard',    
+            # 'momentum_12_1_chg_10d',
+            'rzye_chg_5d_standard',  
+            'rzye_chg_10d_standard',
+            # 多项式形状因子
+            'poly_close_a1_standard',
+            'poly_close_a2_standard',
+            'poly_vol_a1_standard',
+            'poly_vol_a2_standard',
         ]
 
         # ---- 模型超参数 ----

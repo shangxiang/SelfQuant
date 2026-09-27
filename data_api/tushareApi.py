@@ -8,7 +8,7 @@ from .data_source import DataSource
 class TushareDataSource(DataSource):
     def __init__(self):
         super(TushareDataSource, self).__init__()
-        ts.set_token('a365a01b820fb9460a24b6f0ee81468daddf4903486e8b2717144dd3')
+        ts.set_token('xxxxxxxxxx')
         self.pro = ts.pro_api()
 
     def get_stock_list(self):
@@ -17,11 +17,18 @@ class TushareDataSource(DataSource):
         """
         return self.pro.stock_basic(exchange='', list_status='L', market='主板')
 
-    def get_stock_data(self, code, startdate, enddate, adj='qfq'):
+    def get_stock_data(self, code, startdate, enddate, adj=None):
         """
-        获取某只股票的基础数据
+        获取某只股票的日线行情数据。
+        默认返回不复权数据（adj=None），适用于回测交易模拟。
+        如需复权数据，可传入 adj='qfq'（前复权）或 adj='hfq'（后复权）。
         """
-        return ts.pro_bar(ts_code=code, start_date=startdate, end_date=enddate, adj=adj)
+        if adj is None:
+            # 不复权：直接使用 daily 接口，返回真实交易价格
+            return self.pro.daily(ts_code=code, start_date=startdate, end_date=enddate)
+        else:
+            # 复权：使用 pro_bar 接口
+            return ts.pro_bar(ts_code=code, start_date=startdate, end_date=enddate, adj=adj)
 
     def get_trade_calender(self, startdate, enddate, exchange='SSE', is_open='1'):
         """
@@ -114,3 +121,13 @@ class TushareDataSource(DataSource):
         """
         return self.pro.index_daily(ts_code=ts_code, start_date=startdate, end_date=enddate)
         pass
+
+    def get_adj_factor(self, code, startdate='', enddate=''):
+        """
+        获取股票复权因子
+        :param code: 股票代码
+        :param startdate: 开始日期
+        :param enddate: 结束日期
+        :return: 复权因子DataFrame，包含trade_date和adj_factor列
+        """
+        return self.pro.adj_factor(ts_code=code, start_date=startdate, end_date=enddate)

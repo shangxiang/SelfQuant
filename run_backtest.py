@@ -18,6 +18,8 @@ from strategy.selection.lgbm_ranker_strategy import LGBMRankerConfig, LGBMRanker
 from strategy.selection.ic_weighted_strategy import ICWeightedConfig, ICWeightedStrategy
 from strategy.sell.hold_n_days_batch_stop import HoldNDaysBatchStopStrategy
 from backtest.timing import LGBMDriftTiming
+from strategy.selection.lgbm_dynamic_strategy import LGBMDynamicConfig, LGBMDynamicStrategy
+from strategy.selection.lgbm_binary_strategy import LGBMBinaryConfig, LGBMBinaryStrategy
 
 TOP_N = 10
 
@@ -109,14 +111,24 @@ if __name__ == '__main__':
     # strategy = ElasticNetStrategy(s_cfg, loader)
 
     # LightGBM（非线性，使用原始因子值，截面 rank 标签）
-    s_cfg    = LGBMConfig()
-    loader   = DataLoader(s_cfg)
-    strategy = LGBMStrategy(s_cfg, loader)
+    # s_cfg    = LGBMConfig()
+    # loader   = DataLoader(s_cfg)
+    # strategy = LGBMStrategy(s_cfg, loader)
+
+    # LightGBM 动态因子（非线性，使用原始因子值，截面 rank 标签）
+    # s_cfg    = LGBMDynamicConfig()
+    # loader   = DataLoader(s_cfg)
+    # strategy = LGBMDynamicStrategy(s_cfg, loader)
+
+    # LightGBM 二分类（专注 Top-K 识别，不做全截面排序）
+    # s_cfg    = LGBMBinaryConfig()
+    # loader   = DataLoader(s_cfg)
+    # strategy = LGBMBinaryStrategy(s_cfg, loader)
 
     # LGBMRanker（使用 LambdaRank，支持时间衰减）
-    # cfg = LGBMRankerConfig()
-    # loader = DataLoader(cfg)
-    # strategy = LGBMRankerStrategy(cfg, loader)
+    cfg = LGBMRankerConfig()
+    loader = DataLoader(cfg)
+    strategy = LGBMRankerStrategy(cfg, loader)
 
     # IC 加权选股
     # cfg      = ICWeightedConfig()
@@ -125,11 +137,11 @@ if __name__ == '__main__':
 
     # ──────────────────────────────────────────────────────
 
-    b_cfg        = BacktestConfig()
-    b_cfg.top_n  = 10
+    # b_cfg        = BacktestConfig()
+    # b_cfg.top_n  = 10
 
     # 纯因子评估（Rank IC + 分层收益）
-    # strategy.simple_backtest('20240101', '20250520')
+    strategy.simple_backtest('20240101', '20250605')
 
     # 均线择时（原方案）
     timing = MATiming(
@@ -172,6 +184,6 @@ if __name__ == '__main__':
     # )
     sell = HoldNDaysSellStrategy(n=5)
 
-    engine = BacktestEngine(strategy, loader, b_cfg, timing=timing, sell_strategy=sell)
-    nav_df, trades = engine.run('20240103', '20260522')
-    engine.report(nav_df)
+    # engine = BacktestEngine(strategy, loader, b_cfg, timing=timing, sell_strategy=sell)
+    # nav_df, trades = engine.run('20240103', '20260605')
+    # engine.report(nav_df)

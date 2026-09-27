@@ -172,7 +172,7 @@ def step_factors() -> None:
 def step_standardize() -> None:
     """截面化 + 标准化（tools）。"""
     print('\n[4/6] 截面化 + 标准化（tools）')
-    from tools import series_to_section, standardize, section_duplicates
+    from standardize import series_to_section, standardize, section_duplicates
     series_to_section(incremental=True)
     standardize(incremental=True)
     section_duplicates()

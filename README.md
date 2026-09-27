@@ -15,6 +15,7 @@ A 股量化研究框架，覆盖数据拉取、因子计算、截面标准化到
   - [卖出策略](#卖出策略)
   - [择时策略](#择时策略)
   - [回测引擎](#回测引擎)
+  - [微信推送](#微信推送)
 - [快速开始](#快速开始)
 - [开发新内容](#开发新内容)
   - [新增选股策略](#新增选股策略)
@@ -28,12 +29,14 @@ A 股量化研究框架，覆盖数据拉取、因子计算、截面标准化到
 ```
 SelfQuant/
 ├── run_backtest.py                        # 主入口，从根目录执行
+├── run_signal.py                          # 信号生成入口（含数据更新全流程）
 │
 ├── data/                                  # 本地数据（不入 git）
 │   ├── raw/
 │   │   ├── trade_cal.csv                  # 交易日历
 │   │   ├── stock_list/stock_list.csv      # 股票列表（含行业信息）
-│   │   ├── stock_data/                    # 个股日线行情
+│   │   ├── stock_data/                    # 个股日线行情（不复权）
+│   │   ├── adj_factor/                    # 复权因子
 │   │   ├── daily_basic_data/              # 每日基本面快照（PE/PB/市值等）
 │   │   ├── moneyflow/                     # 大中小单资金流
 │   │   ├── margin_detail/                 # 融资融券明细
@@ -49,22 +52,29 @@ SelfQuant/
 ├── data_api/                              # 数据源接口（Tushare 封装）
 ├── data_local_dump.py                     # 从 Tushare 拉取原始数据到本地
 ├── merge_data.py                          # 合并行情/财务数据，生成 data/series/
+├── standardize.py                         # 截面转换 + 去极值 + 中性化 + 标准化
+├── notify.py                              # PushPlus 微信推送
+│
 ├── factor/
 │   └── new_factor_manager.py              # 因子计算：技术因子 + FF 风格因子 + 交叉因子
-├── tools.py                               # 截面转换 + 去极值 + 中性化 + 标准化
 │
 ├── strategy/                              # 策略层
 │   ├── data_loader.py                     # 截面数据加载器（带缓存）
 │   ├── selection/                         # 截面选股策略
 │   │   ├── base_strategy.py               # 抽象基类 BaseStrategy
-│   │   └── elastic_net_strategy.py        # 弹性网络策略（含因子评估）
+│   │   ├── elastic_net_strategy.py        # 弹性网络策略（含因子评估）
+│   │   ├── lgbm_strategy.py               # LightGBM 回归策略（固定超参数）
+│   │   ├── lgbm_dynamic_strategy.py       # LightGBM 动态超参数策略（自动搜索）
+│   │   ├── lgbm_ranker_strategy.py        # LambdaRank 排序优化策略
+│   │   └── ic_weighted_strategy.py        # IC 加权策略（无参数）
 │   └── sell/                              # 卖出策略
 │       ├── base_sell_strategy.py          # 抽象基类 BaseSellStrategy
-│       └── hold_n_days.py                 # 持有 N 日清仓策略
+│       ├── hold_n_days.py                 # 持有 N 日清仓策略
+│       └── virtual_portfolio_stop.py      # 虚拟组合止损策略
 │
 └── backtest/                              # 回测层
     ├── config.py                          # BacktestConfig 参数配置
-    ├── timing.py                          # 择时策略（抽象基类 + MA 均线择时）
+    ├── timing.py                          # 择时策略（5 种实现）
     └── engine.py                          # BacktestEngine 回测引擎
 ```
 
@@ -83,8 +93,8 @@ merge_data.py  →  data/series/<ts_code>.csv  +  data/financial.csv
 factor/new_factor_manager.py  →  data/series/<ts_code>.csv（写入因子列）
 
 ④ 截面化 + 标准化
-tools.py: series_to_section()  →  data/section/YYYYMMDD.csv
-tools.py: standardize()        →  data/section/YYYYMMDD.csv（写入 _standard 列）
+standardize.py: series_to_section()  →  data/section/YYYYMMDD.csv
+standardize.py: standardize()        →  data/section/YYYYMMDD.csv（写入 _standard 列）
 
 ⑤ 策略 + 回测
 DataLoader → BaseStrategy.fit() + generate_signals() → BacktestEngine.run()
@@ -95,6 +105,7 @@ DataLoader → BaseStrategy.fit() + generate_signals() → BacktestEngine.run()
 - 回测引擎只负责"交易模拟"，不内置任何策略逻辑
 - 三类策略（选股 / 择时 / 卖出）均通过依赖注入，可自由组合替换
 - 信号与成交错开一日（T 日收盘生成信号，T+1 日收盘成交），避免未来函数
+- 财务数据用披露日（f_ann_date）对齐，而非报告期（end_date），保证 point-in-time 正确性
 
 ---
 
@@ -136,13 +147,23 @@ dates = loader.get_trading_dates()   # 返回完整交易日历列表 ['20200104
 
 逐只股票计算因子，结果写回 `data/series/<ts_code>.csv`。支持增量重跑（幂等）。
 
-因子分三大类（共约 50+ 列，下游使用 `_standard` 后缀版本）：
+**复权机制：** 所有技术因子基于**后复权价格**（`close_hfq` = 不复权价格 × 复权因子）计算，消除除权缺口对技术指标的干扰；回测引擎使用**不复权真实价格**进行交易模拟。
+
+因子分九大类（共 150+ 列，下游使用 `_standard` 后缀版本）：
+
+**Alpha101 因子（31 个）**
+
+世坤经典因子，基于价格和成交量的复杂组合。
+
+| 因子 | 说明 |
+|---|---|
+| `alpha101_1` ~ `alpha101_101` | 包含时序排名、相关性、条件判断等复杂构造 |
 
 **技术/量价因子（基于日线行情）**
 
 | 因子 | 说明 |
 |---|---|
-| `macd` / `rsi` | MACD、RSI |
+| `macd` / `rsi` / `kdj` / `cci` / `adx` | 经典技术指标 |
 | `macd_divergence` | MACD 底背离信号（0/1） |
 | `macd_air_refuel` | MACD 零轴附近缩量信号（0/1） |
 | `vol_breakout` | 成交量突破信号（0/1） |
@@ -157,6 +178,95 @@ dates = loader.get_trading_dates()   # 返回完整交易日历列表 ['20200104
 | `lhb_strength_5d` | 5 日龙虎榜净买力度 |
 | `label` / `label_10` / `label_25` | 未来 5 / 10 / 25 日收益率（训练标签） |
 
+**Size 规模因子（2 个）**
+
+| 因子 | 说明 |
+|---|---|
+| `size` | 总市值因子：`-log(TotalShares × ClosePrice / 1e6)` |
+| `float_size` | 流通市值因子：`-log(FloatShares × ClosePrice / 1e6)` |
+
+**Value 价值因子（5 个）**
+
+| 因子 | 说明 |
+|---|---|
+| `earnings_to_price` | 市盈率倒数（E/P） |
+| `book_to_market` | 账面市值比（B/M） |
+| `ocf_to_market` | 经营现金流市值比 |
+| `fcf_to_market` | 自由现金流市值比 |
+| `sales_to_market` | 营业收入市值比 |
+
+**Reversal 反转因子（2 个）**
+
+| 因子 | 说明 |
+|---|---|
+| `small_cap_reversal_21d` | 小盘反转因子：市值最小的股票取过去 21 日累计收益的反转信号 |
+| `price_dist` | 价格距离因子：股价与下一个整数关口的距离 |
+
+**Momentum 动量因子（10 个）**
+
+| 因子 | 说明 |
+|---|---|
+| `return_5d` / `return_21d` / `return_42d` / `return_63d` / `return_126d` / `return_252d` | 多周期累计收益率 |
+| `ma_20d` | 20 日移动平均线 |
+| `price_position_ir_60d` | 价格位置动量因子：过去 60 日（收盘-开盘）/（最高-最低）比率的信息比率 |
+| `rsrs` | RSRS 指标：通过回归最高价和最低价得到斜率，再对斜率进行标准化 |
+| `days_down_up` | 连续涨跌天数因子：连续上涨天数与连续下跌天数之差的绝对值减 1 |
+
+**Risk 风险因子（15 个）**
+
+| 因子 | 说明 |
+|---|---|
+| `return_std_21d` / `return_std_42d` / `return_std_63d` / `return_std_126d` / `return_std_252d` | 多周期收益率标准差 |
+| `sharpe_60d` / `sharpe_750d` | 夏普比率 |
+| `adjusted_sharpe_750d` | 调整夏普率：`Mean / Std^4`，对高波动性惩罚更重 |
+| `high_low_21d` / `high_low_42d` / `high_low_63d` / `high_low_126d` / `high_low_252d` | 净值曲线最高点与最低点的比值 |
+| `days_beyond_upper_lower_21d` | 21 日内价格超越均值±标准差的天数之差 |
+| `log_price` | 收盘价的自然对数 |
+
+**Liquidity 流动性因子（30 个）**
+
+| 因子 | 说明 |
+|---|---|
+| `avg_turnover_5d` / `avg_turnover_10d` / `avg_turnover_20d` | 短期平均换手率 |
+| `std_turnover_21d` / `std_turnover_42d` / `std_turnover_63d` / `std_turnover_126d` / `std_turnover_252d` | 多周期换手率标准差 |
+| `avg_turnover_21d` / `avg_turnover_42d` / `avg_turnover_63d` / `avg_turnover_126d` / `avg_turnover_252d` | 多周期平均换手率 |
+| `bias_turn_21d_252d` / `bias_turn_42d_252d` / `bias_turn_63d_252d` / `bias_turn_126d_252d` | 短期与长期换手率的乖离率 |
+| `bias_std_turn_21d_252d` | 短期与长期换手率标准差的乖离率 |
+| `amount_ma_20d` | 20 日成交额移动平均 |
+| `turnover_ma_20d` | 20 日成交量与流通市值比率的移动平均 |
+| `sum_abs_rtn_amount_20d` | 20 日累计绝对收益率与累计成交额的比值 |
+| `turnover_ma_20d_120d` | 20 日成交量与流通市值比率与 120 日的比值 |
+
+**Quality 质量因子（10 个）**
+
+| 因子 | 说明 |
+|---|---|
+| `roe_ttm` | TTM 净资产收益率 |
+| `roa_ttm` | TTM 总资产收益率 |
+| `gross_margin` | 毛利率 |
+| `net_margin` | 净利率 |
+| `debt_to_assets` | 资产负债率 |
+| `current_ratio` | 流动比率 |
+| `quick_ratio` | 速动比率 |
+| `cash_flow_to_debt` | 现金流负债比 |
+| `accruals` | 应计项目 |
+| `earnings_quality` | 盈余质量：经营现金流/净利润 |
+
+**Growth 成长因子（10 个）**
+
+| 因子 | 说明 |
+|---|---|
+| `revenue_growth_yoy` | 营收同比增长率 |
+| `profit_growth_yoy` | 净利润同比增长率 |
+| `asset_growth_yoy` | 资产同比增长率 |
+| `roe_growth_yoy` | ROE 同比增长率 |
+| `eps_growth_yoy` | EPS 同比增长率 |
+| `revenue_growth_qoq` | 营收环比增长率 |
+| `profit_growth_qoq` | 净利润环比增长率 |
+| `gross_margin_growth` | 毛利率增长率 |
+| `net_margin_growth` | 净利率增长率 |
+| `ocf_growth_yoy` | 经营现金流同比增长率 |
+
 **Fama-French 风格因子（股票截面）**
 
 | 因子 | 对应 FF 因子 | 说明 |
@@ -165,19 +275,6 @@ dates = loader.get_trading_dates()   # 返回完整交易日历列表 ['20200104
 | `value_factor` | HML | `1/PB`，价值因子 |
 | `cma_factor` | CMA | 资产增速取反，保守投资因子 |
 | `momentum_12_1` | Mom | 12-1 月动量 |
-| `roe_ttm` | RMW | ROE（TTM），盈利因子代理 |
-
-**基本面因子（来自财务三表）**
-
-| 因子 | 说明 |
-|---|---|
-| `gross_margin` | 毛利率 |
-| `debt_ratio` | 资产负债率 |
-| `roe_ttm` | ROE（TTM） |
-| `revenue_growth_yoy` | 营收同比增速 |
-| `profit_growth_yoy` | 净利润同比增速 |
-| `accruals` | 应计项目（盈利质量） |
-| `asset_growth_yoy` | 总资产增速（CMA 代理） |
 
 **高阶交叉因子**
 
@@ -190,7 +287,7 @@ dates = loader.get_trading_dates()   # 返回完整交易日历列表 ['20200104
 | `smb_hml` | `size_factor × value_factor` | 规模×价值双重溢价 |
 | `vol_mom` | `volatility_20d × momentum_12_1` | 动量崩溃风险信号 |
 
-**`tools.py`**
+**`standardize.py`**
 
 对 `data/section/` 下每张截面 CSV 做三步处理：
 
@@ -215,7 +312,17 @@ dates = loader.get_trading_dates()   # 返回完整交易日历列表 ['20200104
 | `reset() -> None` | 可选，重置内部状态（每次独立回测前由引擎调用） |
 | `simple_backtest(start, end) -> dict` | 可选，纯信号质量评估（不涉及交易） |
 
-**`strategy/selection/elastic_net_strategy.py` — `ElasticNetStrategy`**
+**策略矩阵**
+
+| 策略 | 模型 | 特点 | 适用场景 |
+|---|---|---|---|
+| `ElasticNetStrategy` | 线性回归 | 滚动窗口 + EMA 权重平滑 | 因子线性关系强时 |
+| `LGBMStrategy` | LightGBM 回归 | rank 归一化标签 + 时间衰减权重 | 非线性关系，默认选择 |
+| `LGBMDynamicStrategy` | LightGBM 回归 | **自动搜索超参数**（window/halflife/模型参数） | 市场风格变化快时 |
+| `LGBMRankerStrategy` | LambdaRank | 直接优化 NDCG@20 + 五档相关度 | 排序质量要求高时 |
+| `ICWeightedStrategy` | IC 加权 | 无参数 + 滚动 RankIC 作为权重 | 快速 baseline |
+
+**`ElasticNetStrategy`**
 
 基于 `ElasticNetCV` 的滚动窗口因子选股策略。每个交易日滚动训练，用当日截面因子值线性加权打分。
 
@@ -230,22 +337,65 @@ dates = loader.get_trading_dates()   # 返回完整交易日历列表 ['20200104
 | `smooth_weights` | `True` | 是否对因子权重做指数移动平滑（EMA） |
 | `smooth_alpha` | `0.2` | EMA 平滑系数（新权重占比，越小越平滑） |
 
-当前使用的 31 个因子：
+**`LGBMStrategy`**
 
-```
-估值：     pe_ttm_standard、pb_standard、dv_ttm_standard
-技术：     macd_standard、rsi_standard、volatility_20d_standard、reversal_5d_standard
-量价：     turnover_rate_x_standard、volume_ratio_standard、positive_flow_standard、total_mv_standard
-二值信号： macd_divergence、macd_air_refuel
-基本面：   gross_margin_standard、debt_ratio_standard、roe_ttm_standard
-           revenue_growth_yoy_standard、profit_growth_yoy_standard、accruals_standard
-FF 因子：  size_factor_standard、smb_squared_standard、value_factor_standard
-           cma_factor_standard、asset_growth_yoy_standard、momentum_12_1_standard
-交叉因子： smb_mom_standard、smb_squared_mom_standard、hml_rmw_standard
-           smb_hml_standard、vol_mom_standard
+基于 LightGBM 回归的选股策略。将 label 做 rank 百分位归一化后训练，模型学习"排序"而非"绝对收益"。
+
+`LGBMConfig` 关键参数：
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `factor_cols` | 57 个因子 | 参与建模的因子列名列表 |
+| `window` | `40` | 滚动训练窗口（交易日数） |
+| `weight_halflife` | `20` | 样本权重半衰期（越近样本权重越大） |
+| `top_weight_factor` | `1.5` | 头部样本（label > 80%）额外加权倍数 |
+| `label_period` | `5` | label 持有期（交易日） |
+| `label_lookahead` | `6` | label 起始偏移（避免未来函数） |
+
+**`LGBMDynamicStrategy`（动态超参数版）**
+
+在 `LGBMStrategy` 基础上增加**自动超参数搜索**，定期用历史数据找最优参数。
+
+两级搜索机制：
+
+| 级别 | 搜索内容 | 频率 | 组合数 |
+|---|---|---|---|
+| 一级 | 模型超参数（max_depth、num_leaves 等） | 每月 | 162 |
+| 二级 | window + weight_halflife | 每 3 个月 | 12 |
+
+搜索目标：验证集 Rank IC 均值最高。
+
+`LGBMDynamicConfig` 额外参数：
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `tune_interval` | `20` | 一级搜索频率（交易日） |
+| `tune_interval_v2` | `3` | 每 N 次一级搜索后触发二级搜索 |
+| `tune_lookback` | `120` | 搜索用的历史窗口（交易日） |
+| `tune_val_ratio` | `0.2` | 验证集比例（时间序列切分） |
+
+使用方式：
+
+```python
+from strategy.selection.lgbm_dynamic_strategy import LGBMDynamicConfig, LGBMDynamicStrategy
+
+s_cfg = LGBMDynamicConfig()
+strategy = LGBMDynamicStrategy(s_cfg, loader)
 ```
 
-`simple_backtest()` 输出 Rank IC 统计、多空分层收益、因子权重均值，返回 `{'ic_df', 'ls_df', 'weights_df'}`。
+**`LGBMRankerStrategy`**
+
+使用 LightGBM 的 LambdaRank 模式，直接优化排序质量（NDCG）。
+
+| 特点 | 说明 |
+|---|---|
+| 损失函数 | `lambdarank`，直接优化 NDCG |
+| 标签 | 五档离散相关度（前 5%/20%/50%/80%/其余 → 4/3/2/1/0） |
+| 评估指标 | NDCG@20 |
+
+**`ICWeightedStrategy`**
+
+无参数的因子加权策略。用过去 N 天各因子与 label 的 RankIC 作为权重，对当日因子标准化值加权求和。
 
 ---
 
@@ -263,13 +413,10 @@ def evaluate(
 
 `keep_ratio` 含义：`1.0` = 全部保留，`0.0` = 全部卖出，`0.5` = 减仓 50%，以此类推。
 
-**`strategy/sell/hold_n_days.py` — `HoldNDaysSellStrategy`**
-
-最简卖出策略：持有满 `n` 个交易日后全部清仓。
-
-```python
-sell = HoldNDaysSellStrategy(n=5)
-```
+| 策略 | 说明 |
+|---|---|
+| `HoldNDaysSellStrategy` | 持有满 N 个交易日后全部清仓 |
+| `VirtualPortfolioStopStrategy` | 虚拟组合止损：用盲窗口内的"模拟考试"判断模型是否失效，触发降仓 |
 
 ---
 
@@ -282,16 +429,13 @@ sell = HoldNDaysSellStrategy(n=5)
 | `prepare(start_date, end_date)` | 可选，回测前预计算（如读取指数数据） |
 | `get_position_ratio(date_str) -> float` | 返回当日建仓比例，`0.0` = 空仓，`1.0` = 满仓 |
 
-**`backtest/timing.py` — `MATiming`**
-
-基于指数均线的牛熊判断：前一日指数收盘价高于 N 日均线则满仓，否则空仓。
-
-```python
-timing = MATiming(
-    index_file='data/raw/index_daily/000905.SH.csv',
-    ma_period=60,   # 60 日均线
-)
-```
+| 策略 | 逻辑 | 适用场景 |
+|---|---|---|
+| `MATiming` | 指数收盘价 vs N 日均线 | 趋势行情 |
+| `StyleConvergenceTiming` | 大小盘高相关 + 双双下行 → 空仓 | 风格切换期 |
+| `BlindWindowTiming` | 盲窗口相关性/波动率分位数 + 趋势滤波 | 震荡市 |
+| `LastBatchTiming` | 上期亏损递减仓位，盈利恢复满仓 | 模型不稳定期 |
+| `LGBMDriftTiming` | 因子漂移检测 → 降仓 | 因子失效期 |
 
 ---
 
@@ -337,6 +481,37 @@ engine.report(nav_df)
 
 ---
 
+### 微信推送
+
+**`notify.py` — PushPlus 推送**
+
+回测/信号生成完成后，自动推送结果到微信。
+
+```python
+from notify import send_wechat
+
+send_wechat(
+    title="今日信号",
+    content="## 买入\n- 贵州茅台\n- 宁德时代\n\n## 卖出\n- 比亚迪"
+)
+```
+
+**配置方式：**
+
+1. 注册 [PushPlus](https://www.pushplus.plus)，获取 token
+2. 设置环境变量：
+   ```powershell
+   $env:PUSHPLUS_TOKEN = "你的token"
+   ```
+3. 或在代码中直接传入：
+   ```python
+   send_wechat("标题", "内容", token="你的token")
+   ```
+
+支持 Markdown 格式，适合展示交易信号、回测结果等。
+
+---
+
 ## 快速开始
 
 **前提：** 已完成数据拉取和因子计算流程（`data/section/` 目录下有含 `_standard` 列的截面文件）。
@@ -352,7 +527,7 @@ python merge_data.py
 python factor/new_factor_manager.py
 
 # ④ 截面化 + 标准化（生成 data/section/）
-python tools.py
+python standardize.py
 
 # ⑤ 运行回测
 python run_backtest.py
@@ -368,14 +543,14 @@ python run_backtest.py
 
 ### 新增选股策略
 
-1. 在 `strategy/selection/` 下新建文件，如 `lgb_strategy.py`
+1. 在 `strategy/selection/` 下新建文件，如 `xgb_strategy.py`
 2. 继承 `BaseStrategy`，实现 `fit()` 和 `generate_signals()`
 
 ```python
 from strategy.selection.base_strategy import BaseStrategy
 import pandas as pd
 
-class LGBStrategy(BaseStrategy):
+class XGBStrategy(BaseStrategy):
     def __init__(self, config, data_loader):
         self.cfg = config
         self.loader = data_loader
@@ -385,7 +560,7 @@ class LGBStrategy(BaseStrategy):
         self.model = None
 
     def fit(self, date_str: str) -> bool:
-        # 构建训练数据，训练 LightGBM 模型
+        # 构建训练数据，训练 XGBoost 模型
         # 成功返回 True，数据不足返回 False
         ...
         return True
@@ -401,8 +576,8 @@ class LGBStrategy(BaseStrategy):
 3. 在 `run_backtest.py` 中替换：
 
 ```python
-from strategy.selection.lgb_strategy import LGBStrategy
-strategy = LGBStrategy(s_cfg, loader)
+from strategy.selection.xgb_strategy import XGBStrategy
+strategy = XGBStrategy(s_cfg, loader)
 ```
 
 ---
