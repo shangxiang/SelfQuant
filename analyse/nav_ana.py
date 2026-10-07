@@ -34,7 +34,7 @@ nav.rename(columns={'date': 'trade_date'}, inplace=True)
 nav_2 = pd.read_csv(path2 + 'nav.csv')
 nav_2.rename(columns={'date': 'trade_date', 'nav': 'nav_2'}, inplace=True)
 
-zza500 = pd.read_csv('../data/raw/index_daily/000510.CSI.csv')
+zza500 = pd.read_csv('../data/raw/index_daily/000510.SH.csv')
 zz2000 = pd.read_csv('../data/raw/index_daily/932000.CSI.csv')
 
 nav = nav.merge(zza500[['trade_date', 'close']], on='trade_date', how='left')

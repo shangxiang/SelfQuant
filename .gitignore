@@ -4,3 +4,17 @@ data/
 *__pycache__/
 strategy/backtest_results/
 backtest/results/
+
+# IDE / 工具链产物（非项目代码）
+cli/
+skills/
+.trae/
+.trae-venv
+
+# 临时文件
+tmp.csv
+tmp.py
+
+# 私人文件
+简历.docx
+简历.md

@@ -8,7 +8,7 @@ from .data_source import DataSource
 class TushareDataSource(DataSource):
     def __init__(self):
         super(TushareDataSource, self).__init__()
-        ts.set_token('xxxxxxxxxx')
+        ts.set_token('a365a01b820fb9460a24b6f0ee81468daddf4903486e8b2717144dd3')
         self.pro = ts.pro_api()
 
     def get_stock_list(self):
@@ -131,3 +131,39 @@ class TushareDataSource(DataSource):
         :return: 复权因子DataFrame，包含trade_date和adj_factor列
         """
         return self.pro.adj_factor(ts_code=code, start_date=startdate, end_date=enddate)
+
+    def get_namechange(self, code='', startdate='', enddate=''):
+        """
+        获取股票名称变更记录，用于识别ST股票
+        :param code: 股票代码（可选，不传则获取全部）
+        :param startdate: 开始日期
+        :param enddate: 结束日期
+        :return: 名称变更DataFrame，包含ts_code, name, start_date, end_date, ann_title等
+        """
+        return self.pro.namechange(ts_code=code, start_date=startdate, end_date=enddate, fields='ts_code,name,start_date,end_date,ann_title,ann_type')
+
+    def get_st_stocks_by_date(self, date):
+        """
+        获取指定日期的ST股票列表
+        通过namechange接口获取该日期所有名称包含ST的股票
+        :param date: 日期，格式YYYYMMDD
+        :return: ST股票代码列表
+        """
+        # 获取该日期之前所有名称变更记录
+        df = self.pro.namechange(start_date='20100101', end_date=date, 
+                                 fields='ts_code,name,start_date,end_date')
+        if df is None or df.empty:
+            return []
+        
+        # 筛选出在指定日期名称包含ST的股票
+        # 条件：start_date <= date 且 (end_date > date 或 end_date为空)
+        df['start_date'] = pd.to_datetime(df['start_date'], format='%Y%m%d')
+        df['end_date'] = pd.to_datetime(df['end_date'], format='%Y%m%d', errors='coerce')
+        target_date = pd.to_datetime(date, format='%Y%m%d')
+        
+        mask = (df['start_date'] <= target_date) & \
+               ((df['end_date'] > target_date) | df['end_date'].isna()) & \
+               (df['name'].str.contains('ST', case=False, na=False))
+        
+        st_df = df[mask]
+        return st_df['ts_code'].unique().tolist()

@@ -32,7 +32,7 @@ SelfQuant/
 ├── run_signal.py                          # 信号生成入口（含数据更新全流程）
 │
 ├── data/                                  # 本地数据（不入 git）
-│   ├── raw/
+│   ├── raw/                               # 原始 CSV
 │   │   ├── trade_cal.csv                  # 交易日历
 │   │   ├── stock_list/stock_list.csv      # 股票列表（含行业信息）
 │   │   ├── stock_data/                    # 个股日线行情（不复权）
@@ -44,12 +44,15 @@ SelfQuant/
 │   │   ├── income/                        # 利润表
 │   │   ├── balancesheet/                  # 资产负债表
 │   │   ├── cashflow/                      # 现金流量表
-│   │   └── index_daily/000905.SH.csv      # 中证500日线（择时用）
-│   ├── series/                            # 按股票存储的时序数据 <ts_code>.csv
-│   ├── section/                           # 每日截面数据（含标准化因子）YYYYMMDD.csv
-│   └── financial.csv                      # 合并后的财务数据宽表
+│   │   └── index_daily/                       # 精选指数日线（16 个，择时/基准用）
+│   ├── financial.parquet                  # 合并后的财务宽表
+│   ├── st_flag.parquet                    # ST 标识（ts_code, trade_date, is_st）
+│   ├── final_result.parquet               # 日线宽表（按 ts_code, trade_date 排序）
+│   ├── series/<ts_code>.parquet           # 时序层：逐股票，含因子列
+│   └── market/trade_date=YYYYMMDD/        # 截面层：按交易日分区的 Parquet
+│           └── part-0.parquet             #   含标准化后的 _standard 列
 │
-├── data_api/                              # 数据源接口（Tushare 封装）
+├── data_store.py                          # DuckDB + Parquet 存储层（分区读写）
 ├── data_local_dump.py                     # 从 Tushare 拉取原始数据到本地
 ├── merge_data.py                          # 合并行情/财务数据，生成 data/series/
 ├── standardize.py                         # 截面转换 + 去极值 + 中性化 + 标准化
@@ -86,18 +89,18 @@ SelfQuant/
 ① 数据拉取
 data_local_dump.py  →  data/raw/
 
-② 数据合并
-merge_data.py  →  data/series/<ts_code>.csv  +  data/financial.csv
+② 数据合并（DuckDB 执行宽表连接，避免 pandas 内存爆炸）
+merge_data.py  →  data/final_result.parquet  →  data/series/<ts_code>.parquet
 
-③ 因子计算
-factor/new_factor_manager.py  →  data/series/<ts_code>.csv（写入因子列）
+③ 因子计算（逐股票时序）
+factor/new_factor_manager.py  →  写回 data/series/<ts_code>.parquet
 
-④ 截面化 + 标准化
-standardize.py: series_to_section()  →  data/section/YYYYMMDD.csv
-standardize.py: standardize()        →  data/section/YYYYMMDD.csv（写入 _standard 列）
+④ 截面化 + 标准化（流式转置 + 逐日处理）
+standardize.py: series_to_section()  →  data/market/trade_date=YYYYMMDD/part-*.parquet
+standardize.py: standardize()        →  同一分区写回 _neutral / _standard 列
 
 ⑤ 策略 + 回测
-DataLoader → BaseStrategy.fit() + generate_signals() → BacktestEngine.run()
+DataLoader（读 data/market/ 分区）→ BaseStrategy.fit() + generate_signals() → BacktestEngine.run()
 ```
 
 **关键设计原则：**
@@ -113,6 +116,34 @@ DataLoader → BaseStrategy.fit() + generate_signals() → BacktestEngine.run()
 
 ### 数据层
 
+数据分两层存储，互为转置，各自服务一种访问模式：
+
+| 层 | 布局 | 服务谁 | 访问模式 |
+|---|---|---|---|
+| `series/` | 每只股票一个 Parquet | 因子计算 | 逐股票时序（rolling / ewm 沿时间轴） |
+| `market/` | `trade_date=YYYYMMDD/` 分区 | 标准化、策略、回测 | 逐交易日截面 |
+
+**`data_store.py` — `DataStore`（DuckDB + Parquet）**
+
+统一负责 `market/` 层的读写。两个关键设计：
+
+1. **分区键就是 `trade_date`**。DuckDB 只对 hive 分区列做文件裁剪，因此所有
+   查询的过滤条件都写在分区列上。实测 300 天样本：命中分区列 0.23s，
+   未命中 1.93s（扫描全部 300 个文件），差距随数据量线性放大。
+2. **流式构建**。`build_sections_from_series()` 按股票分块读取 → 按交易日切分 →
+   以 `part-<块号>.parquet` 追加写入对应分区，内存只保留「一块股票」的数据。
+   一次性 concat 全量时序在 677 万行 × 数百列的规模下必然 OOM。
+
+```python
+from data_store import DataStore
+
+store = DataStore()
+df    = store.read_section('20240102')                  # 单个截面
+win   = store.read_window('20240101', '20240301',        # 区间（命中分区裁剪）
+                          columns=['ts_code', 'close_x', 'label'])
+dates = store.get_all_dates()
+```
+
 **`data_local_dump.py` — `DownloadData`**
 
 从 Tushare 拉取所有原始数据到 `data/raw/`，支持断点续传（已存在的文件跳过）。
@@ -123,11 +154,37 @@ python data_local_dump.py
 
 执行顺序：交易日历 → 股票列表 → 指数基础信息 → 按日期数据（行情快照/资金流/融资融券/龙虎榜）→ 按股票数据（行情/财务三表）→ 指数日线。
 
+#### 指数日线：精选 vs 全量
+
+`index_daily()` 会遍历 `index_basic/SSE.csv` 的**全部指数**（数千个）逐个下载，绝大多数用不上。
+日常使用请改用 `index_daily_selected()`，只下 `DownloadData.INDEX_SELECTED` 里的 16 个：
+
+```python
+d = DownloadData()
+d.index_daily_selected()                       # 全部 16 个
+d.index_daily_selected(categories=['scale'])   # 只要规模宽基
+d.index_daily_selected(codes=['000852.SH'])    # 只要指定代码
+```
+
+| 分类 | 指数 |
+|---|---|
+| `scale` 规模宽基（10） | 上证指数、沪深300、中证500、中证1000、中证2000、中证全指、中证A500、上证50、创业板指、科创50 |
+| `style` 风格（4） | 国证成长、国证价值、小盘成长、小盘价值 |
+| `div` 红利（2） | 中证红利、红利指数 |
+
+覆盖 2018-01-02 起共 2120 个交易日（科创50 自 2019-12-31 起）。增量逻辑复用
+`_incremental_start()`（取已有最新日期的次日为起点）+ `_append_and_save()` 去重写回，
+已下载过的重复调用不会产生新行也不会产生重复。
+
+> ⚠️ 中证A500 的正确代码是 **`000510.SH`**。项目早期在 `backtest/timing.py`、
+> `run_backtest.py` 等处误写成 `000510.CSI`（该代码不存在，择时会因文件缺失而静默失效），已统一修正。
+
 **`merge_data.py`**
 
-- `financial_data_preprocess()`：合并财务三表，利润表/现金流量表做累计→单季度转换，输出 `data/financial.csv`
-- `merge_basic_daily_data()`：将行情、基本面快照、融资融券、资金流、龙虎榜按日期合并为宽表
-- `split_to_series_section()`：将宽表按股票代码拆分，输出 `data/series/<ts_code>.csv`
+- `financial_data_preprocess()`：合并财务三表，利润表/现金流量表做累计→单季度转换，输出 `data/financial.parquet`
+- `build_st_flag()`：由 namechange 构建 ST 标识，输出 `data/st_flag.parquet`（向量化，跳过 Tushare 写出的空文件）
+- `merge_basic_daily_data()`：用 DuckDB 把行情、复权因子、基本面快照、融资融券、资金流、龙虎榜按 (ts_code, trade_date) 全外连接成宽表；重名列沿用 pandas 的 `_x` / `_y` 规则
+- `split_to_series_section()`：用 pyarrow 按批流式拆分到 `data/series/<ts_code>.parquet`
 
 **`strategy/data_loader.py` — `DataLoader`**
 
@@ -446,13 +503,80 @@ def evaluate(
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `top_n` | `100` | 每次建仓选股数量上限 |
-| `commission` | `0.0001` | 单边佣金（万分之一） |
+| `holding_period` | `5` | 固定持有期（交易日），同时作为默认卖出策略参数 |
+| `commission` | `0.0001` | 单边佣金（万分之一），买卖各收一次 |
+| `stamp_duty` | `0.0005` | 印花税，仅卖出收取（A 股 2023-08-28 起为 0.05%） |
+| `slippage` | `0.001` | 双边滑点（买入价上浮、卖出价下浮，按成交价比例） |
+| `enable_limit_check` | `True` | 是否启用涨跌停约束 |
+| `limit_up_pct` | `9.8` | 涨幅 ≥ 此值视为涨停，不可买入 |
+| `limit_down_pct` | `-9.8` | 跌幅 ≤ 此值视为跌停，不可卖出 |
 | `initial_capital` | `1_000_000` | 初始资金（元） |
 | `use_vol_control` | `False` | 是否启用波动率目标控制 |
 | `target_vol` | `0.15` | 目标年化波动率 |
 | `vol_window` | `20` | 波动率计算滚动窗口（日） |
 | `stop_loss` | `None` | 止损阈值（预留接口，如 `-0.08`） |
 | `take_profit` | `None` | 止盈阈值（预留接口，如 `0.15`） |
+
+### 交易成本（务必先看）
+
+5 日换手的单次往返成本 ≈ 滑点 0.1%×2 + 佣金 0.01%×2 + 印花税 0.05% = **0.27% 名义**，
+一年约 50 个来回 → **年化约 12%**。策略毛 alpha 必须超过这个数才可能盈利。
+
+实测（20260730 ~ 20260924，LGBMRanker 策略，top_n=10）：
+
+| 配置 | 总收益率 | 年化 | 夏普 |
+|---|---|---|---|
+| 成本与涨跌停全关 | +1.77% | +12.03% | 0.2453 |
+| 默认（印花税 + 滑点 + 涨跌停） | -0.43% | -2.68% | -0.0704 |
+
+成本明细：佣金 1,447 + 印花税 3,375 + 滑点 14,470 = 19,292
+（占初始资金 1.93%，约占交易额 0.133%）。
+
+**滑点是大头**（占成本 75%）。想降成本，延长持有期比调参数更有效。
+
+### 因子集（factor_set）
+
+数据里实际有 **190 个原始因子**（对应 226 个 `_standard` 列），但各策略 Config 里的
+`factor_cols` 是手工挑选的，长期落后于因子库扩充——Alpha101 31 个、多周期动量族、
+风险族、流动性族、质量成长族、价值族一度完全没被启用。
+
+各策略 Config 里的 `factor_cols` 已**按因子族分组写全**（LGBM / Ranker 211 个，ElasticNet 237 个），
+想增减直接注释掉对应行即可。分组示例：
+
+```python
+self.factor_cols = [
+    # ---- 技术 / 量价 / 资金（32）----
+    'pe_ttm', 'pb', 'macd', 'K', 'rsi', ...
+    # ---- Alpha101（31）----
+    'alpha101_1', ...
+    # ---- 动量（17）----
+    'return_5d', ... 'momentum_12_1', ...
+    # ---- 风险/波动 ----   ---- 流动性 ----   ---- 质量/成长 ----
+    # ---- 价值/风格 ----   ---- 反转 ----     ---- 微观结构/形态 ----
+    # ---- 时序差分 ----
+]
+# 末尾再追加 13 个行业/市场 beta 特征
+```
+
+`factor_set` 是兜底开关（默认 `curated` = 就用手写的这份）：
+
+| `factor_set` | 含义 |
+|---|---|
+| `curated` | 只用 `factor_cols` 里手写的列表（默认） |
+| `all` | 手写列表 ∪ `strategy/factor_columns.py` 从数据中自动发现的新因子 |
+
+`all` 只在"以后新增了因子、还没来得及写进列表"时有用——`discover_factor_cols()` 会读截面
+schema 自动识别因子（排除原始行情列 / `label*` / `*_hfq` / `*_neutral` / `*_standard` / 价格成交标识列）。
+
+> 注意：ElasticNet 用 237 个特征时单次 fit 会超过 5 分钟（ElasticNetCV 的 6×100×5 折坐标下降）。
+> 手写裁剪到 80~120 个，或调小 `l1_ratio_grid` / `cv` 可显著提速。树模型无此问题。
+
+命令行覆盖：
+
+```bash
+python run_backtest.py --factor-set all        # 手写列表 + 自动发现
+python run_backtest.py --factor-set curated    # 只用列表里的（默认）
+```
 
 **`backtest/engine.py` — `BacktestEngine`**
 
@@ -514,28 +638,82 @@ send_wechat(
 
 ## 快速开始
 
-**前提：** 已完成数据拉取和因子计算流程（`data/section/` 目录下有含 `_standard` 列的截面文件）。
+**前提：** 已完成数据拉取和因子计算流程（`data/market/` 下有含 `_standard` 列的截面分区）。
 
 ```bash
 # ① 拉取原始数据
 python data_local_dump.py
 
-# ② 合并行情 + 财务数据
+# ② 合并行情 + 财务数据（宽表 → 时序层）
 python merge_data.py
 
 # ③ 计算因子（写回 data/series/）
 python factor/new_factor_manager.py
 
-# ④ 截面化 + 标准化（生成 data/section/）
+# ④ 截面化 + 标准化（生成 data/market/trade_date=YYYYMMDD/）
 python standardize.py
 
 # ⑤ 运行回测
 python run_backtest.py
 ```
 
+②③④⑤ 也可以一步跑完（含下载，日常更新用这个）：
+
+```bash
+python run_signal.py
+```
+
+回测区间可用参数覆盖，默认取截面数据中最近约 250 个交易日：
+
+```bash
+python run_backtest.py --start 20240102 --end 20241231
+python run_backtest.py 20260522        # 只查询该日的选股与择时信号
+python run_backtest.py --ic            # 回测前额外跑一次 RankIC / 分层收益评估
+```
+
 `run_backtest.py` 将依次输出：
 1. Rank IC 统计报告（因子质量评估）
 2. 模拟交易绩效报告（总收益、年化、夏普、最大回撤、胜率）
+
+---
+
+## 每日增量更新
+
+收盘后跑一次即可把数据推到最新交易日，**已下载 / 已计算的数据只补充、不清理**：
+
+```bash
+python run_signal.py                  # 增量：下载 → 合并 → 因子 → 标准化
+python run_signal.py --end 20260925   # 指定更新到哪一天
+python run_signal.py --signal         # 更新完顺带生成 T+1 的选股信号
+python run_signal.py --since 20260901 # 重做 20260901 之后的历史（该日之后的行用新值替换）
+python run_signal.py --full           # 全量重建（会覆盖 final_result.parquet，慎用）
+```
+
+各环节怎么做到"只追加"：
+
+| 环节 | 增量行为 | 关键文件 |
+| --- | --- | --- |
+| 下载 | 各数据源自己算缺口，已存在的文件跳过 | `data_local_dump.py::_incremental_start` |
+| ST 标识 | 用 `stock_list` 的当前名称与本地记录的上一次名称比对，**只追加新交易日**，历史行不动 | `merge_data.build_st_flag` + `data/name_state.csv` |
+| 日线宽表 | 只合并 `trade_date > 已有最新日` 的新日期，追加进 `final_result.parquet` | `merge_data.merge_basic_daily_data(incremental=True)` |
+| 时序层 | 只拿新增段去 upsert 各股票的 `series` 文件，历史行连同因子列一起保留 | `merge_data.split_to_series_section` |
+| 因子 | 只算 `_date_range.csv` 记录之后的新行（携带 260 日历史上下文） | `factor/new_factor_manager.py` |
+| 截面层 | 只构建缺失的 / 未标准化的交易日分区 | `standardize.series_to_section` / `standardize` |
+
+**ST 判定的改动**：不再调用 `get_namechange` 接口。每次更新时用
+`data/raw/stock_list/stock_list.csv` 里的当前名称，与 `data/name_state.csv`
+中记录的上一次名称比对 —— 名称不一致即视为发生了变更（戴帽 / 摘帽），
+并把新的 ST 状态写入 `data/st_flag.parquet` 的新交易日行。
+因此**必须每日收盘后连续更新**：漏几天就会漏掉这几天的改名事件。
+首次运行时会用本地已下载的 `data/raw/namechange/` 给状态打底（只读本地，不调接口）。
+
+维护用的三个产物：
+- `data/name_state.csv` —— 每只股票上一次记录的名称 / ST 状态 / 最后更新日
+- `data/st_flag.parquet` —— `(ts_code, trade_date, is_st)`，历史区间的 ST 标识
+- `data/_final_result_new.parquet` —— 本次新增段的宽表，供拆分步骤使用
+
+重做历史（`--since`）时会自动把 `data/series/_date_range.csv` 里的因子进度回退到该日，
+被覆盖的行才会重新计算因子，其余行不受影响。
 
 ---
 

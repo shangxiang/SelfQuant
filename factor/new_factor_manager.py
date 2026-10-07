@@ -276,11 +276,15 @@ class FactorManager:
         """
         Parameters
         ----------
-        path         : str   股票日线 CSV 的完整路径（含文件名）
+        path         : str   股票日线文件的完整路径（含文件名），支持 .csv 和 .parquet
         fin_features : dict  由 build_financial_features() 返回的财务因子字典
         """
         self.path = path
-        self.df = pd.read_csv(path)
+        # 支持 Parquet 和 CSV 格式
+        if path.endswith('.parquet'):
+            self.df = pd.read_parquet(path)
+        else:
+            self.df = pd.read_csv(path)
         self.fin_features = fin_features
 
         # trade_date 存储为 YYYYMMDD 整数，计算时转为 datetime 便于时间运算
@@ -1003,7 +1007,7 @@ class FactorManager:
         condition = adv20 < df['vol']
         ts_rank = self._ts_rank(delta_close7.abs(), 60)
         sign = np.sign(delta_close7)
-        df['alpha101_7'] = np.where(condition, -ts_rank * sign, -1).fillna(-1)
+        df['alpha101_7'] = pd.Series(np.where(condition, -ts_rank * sign, -1), index=df.index).fillna(-1)
         return df[['alpha101_7']]
 
     def alpha101_8(self):
@@ -1166,7 +1170,7 @@ class FactorManager:
         delta_high2 = df['high_hfq'].diff(2)
         # (Sum(High, 20) / 20 < High) ? -1 * Delta(High, 2) : 0
         condition = sum_high20 < df['high_hfq']
-        df['alpha101_23'] = np.where(condition, -delta_high2, 0).fillna(0)
+        df['alpha101_23'] = pd.Series(np.where(condition, -delta_high2, 0), index=df.index).fillna(0)
         return df[['alpha101_23']]
 
     def alpha101_25(self):
@@ -1483,11 +1487,15 @@ class FactorManager:
                 continue
             high = df['high_hfq'].iloc[i-regress_window+1:i+1].values
             low = df['low_hfq'].iloc[i-regress_window+1:i+1].values
-            if len(high) < 2 or np.std(high) == 0:
+            # 停牌日会留下 NaN，直接喂给 polyfit 会触发 "SVD did not converge"
+            ok = np.isfinite(high) & np.isfinite(low)
+            if ok.sum() < 2 or np.std(high[ok]) == 0:
                 slopes.append(np.nan)
                 continue
-            # 简单线性回归
-            slope = np.polyfit(high, low, 1)[0]
+            try:
+                slope = float(np.polyfit(high[ok], low[ok], 1)[0])
+            except Exception:
+                slope = np.nan
             slopes.append(slope)
 
         slope_series = pd.Series(slopes, index=df.index)
@@ -2457,7 +2465,11 @@ class FactorManager:
 
         # 写盘前将 trade_date 从 datetime 恢复为原始整数格式（YYYYMMDD）
         self.df['trade_date'] = self.df['trade_date'].dt.strftime('%Y%m%d').astype(int)
-        self.df.to_csv(self.path, index=False)
+        # 支持 Parquet 和 CSV 格式
+        if self.path.endswith('.parquet'):
+            self.df.to_parquet(self.path, index=False)
+        else:
+            self.df.to_csv(self.path, index=False)
         return True
 
 
@@ -2510,32 +2522,52 @@ if __name__ == '__main__':
     # 路径相对于本文件所在目录的上层（项目根），无论从哪里执行都正确
     _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     series_path = os.path.join(_base, "data", "series") + os.sep
-    fin_df = pd.read_csv(os.path.join(_base, "data", "financial.csv"))
+
+    # 支持 Parquet 和 CSV 格式的财务数据
+    financial_parquet = os.path.join(_base, "data", "financial.parquet")
+    financial_csv = os.path.join(_base, "data", "financial.csv")
+
+    if os.path.exists(financial_parquet):
+        fin_df = pd.read_parquet(financial_parquet)
+        print(f"从 Parquet 读取财务数据: {financial_parquet}")
+    elif os.path.exists(financial_csv):
+        fin_df = pd.read_csv(financial_csv)
+        print(f"从 CSV 读取财务数据: {financial_csv}")
+    else:
+        raise FileNotFoundError("找不到财务数据文件 financial.parquet 或 financial.csv")
 
     print("预处理财务数据...")
     fin_features = build_financial_features(fin_df)
     print(f"完成，共 {len(fin_features)} 只股票。")
 
-    # 只匹配股票代码文件（6位数字.交易所.csv），排除 daily_basic_data.csv 等合并产物
-    files = glob.glob(series_path + "[0-9]*.csv")
+    # 优先匹配 Parquet 文件，其次 CSV 文件
+    parquet_files = glob.glob(series_path + "[0-9]*.parquet")
+    csv_files = glob.glob(series_path + "[0-9]*.csv")
+
+    # 合并文件列表，Parquet 优先
+    files = parquet_files if parquet_files else csv_files
     total = len(files)
 
-    n_workers = max(1, multiprocessing.cpu_count() - 1)
-    print(f"启动 {n_workers} 个进程并行计算因子（共 {total} 只股票）...")
+    if total == 0:
+        print(f"警告: 在 {series_path} 中未找到股票数据文件")
+    else:
+        file_format = "Parquet" if parquet_files else "CSV"
+        n_workers = max(1, multiprocessing.cpu_count() - 1)
+        print(f"启动 {n_workers} 个进程并行计算因子（共 {total} 只股票，{file_format} 格式）...")
 
-    completed = 0
-    date_range_results = []
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        futures = {executor.submit(_process_one_stock, (f, fin_features)): f for f in files}
-        for future in as_completed(futures):
-            completed += 1
-            print(f"\r完成 {completed}/{total}", end='', flush=True)
-            try:
-                _, ts_code, start_date, end_date = future.result()
-                date_range_results.append((ts_code, start_date, end_date))
-            except Exception as e:
-                print(f"\n  ✗ {futures[future]}: {e}")
+        completed = 0
+        date_range_results = []
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            futures = {executor.submit(_process_one_stock, (f, fin_features)): f for f in files}
+            for future in as_completed(futures):
+                completed += 1
+                print(f"\r完成 {completed}/{total}", end='', flush=True)
+                try:
+                    _, ts_code, start_date, end_date = future.result()
+                    date_range_results.append((ts_code, start_date, end_date))
+                except Exception as e:
+                    print(f"\n  ✗ {futures[future]}: {e}")
 
-    config_path = os.path.join(series_path, '_date_range.csv')
-    update_series_config(date_range_results, config_path)
-    print(f"\n因子计算完成，date range config 已更新 → {config_path}")
+        config_path = os.path.join(series_path, '_date_range.csv')
+        update_series_config(date_range_results, config_path)
+        print(f"\n因子计算完成，date range config 已更新 → {config_path}")

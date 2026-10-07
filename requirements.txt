@@ -2,7 +2,16 @@ lightgbm==4.6.0
 matplotlib==3.9.4
 numpy==1.26.4
 pandas==2.3.2
+pyarrow>=15.0.0
+duckdb>=0.10.0
 scikit-learn==1.6.1
 scipy==1.13.1
 statsmodels==0.14.5
 tushare==1.4.24
+
+# TabNet 选股策略（strategy/selection/tabnet_strategy.py）需要
+# CPU 版安装（默认 PyPI 源在 Windows 上会拉 CUDA 版本，体积大得多）：
+#   pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+#   pip install pytorch-tabnet==4.1.0
+torch==2.8.0
+pytorch-tabnet==4.1.0

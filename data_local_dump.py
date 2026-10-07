@@ -1,13 +1,25 @@
 import os
 import time
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 from data_api.tushareApi import TushareDataSource
+from merge_data import is_main_board   # 主板口径的唯一来源
 
-START_DATE = "20200101"
-END_DATE   = datetime.today().strftime('%Y%m%d')  # 动态取今日，避免日历截止过期
+START_DATE = "20180101"
+# 动态取今日：写死日期会让交易日历过期，导致新交易日下载不到（增量更新静默失效）
+END_DATE   = datetime.today().strftime('%Y%m%d')
 
+# 多线程配置
+ENABLE_MULTITHREADING = True  # 是否启用多线程并行下载
+# 需要多次请求的任务（按股票或交易日循环下载）放在并行列表
+# namechange 只用于首次全量建库时给历史 ST 标识打底；日常增量更新不再需要
+# （ST 判定已改为用 stock_list 的当前名称与本地记录的上一次名称比对）
+PARALLEL_TASKS = ['stock_data', 'adj_factor', 'income', 'balancesheet', 'cashflow', 'namechange',
+                  'daily_basic_data', 'moneyflow', 'margin_detail', 'top_list']
+MAX_WORKERS = 5  # 最大线程数（根据Tushare API频率限制调整）
 
 class DownloadData:
     """
@@ -31,6 +43,36 @@ class DownloadData:
     CASHFLOW_DIR        = "data/raw/cashflow/"
     INDEX_BASIC_DIR     = "data/raw/index_basic/"
     INDEX_DAILY_DIR     = "data/raw/index_daily/"
+    NAMECHANGE_DIR      = "data/raw/namechange/"
+
+    # 精选指数日线清单：{ts_code: (名称, 分类)}
+    # 原 index_daily() 会遍历 SSE.csv 的全部指数（数千个）逐个下载，绝大多数用不上。
+    # 这里只保留择时与回测分析真正需要的三类：
+    #   scale —— 规模宽基：判断市场状态、大小盘轮动，同时作为回测的收益基准
+    #   style —— 风格：价值/成长轮动
+    #   div   —— 红利：防御风格，用于风险偏好判断
+    # 注意：中证A500 的正确代码是 000510.SH；项目早期误写成 000510.CSI（该代码不存在）。
+    INDEX_SELECTED: dict = {
+        # ── 规模宽基（策略选股市值中位约 99 亿，中证1000/2000 是最贴近的基准）──
+        '000001.SH':  ('上证指数',  'scale'),
+        '000300.SH':  ('沪深300',   'scale'),
+        '000905.SH':  ('中证500',   'scale'),
+        '000852.SH':  ('中证1000',  'scale'),
+        '932000.CSI': ('中证2000',  'scale'),
+        '000985.CSI': ('中证全指',  'scale'),
+        '000510.SH':  ('中证A500',  'scale'),
+        '000016.SH':  ('上证50',    'scale'),
+        '399006.SZ':  ('创业板指',  'scale'),
+        '000688.SH':  ('科创50',    'scale'),
+        # ── 风格 ──
+        '399370.SZ':  ('国证成长',  'style'),
+        '399371.SZ':  ('国证价值',  'style'),
+        '399376.SZ':  ('小盘成长',  'style'),
+        '399377.SZ':  ('小盘价值',  'style'),
+        # ── 红利 ──
+        '000922.CSI': ('中证红利',  'div'),
+        '000015.SH':  ('红利指数',  'div'),
+    }
 
     # True = 只下载/更新主板股票（SH 6xxxxx 非688、SZ 0xxxxx 非300/301）
     MAIN_BOARD_ONLY: bool = True
@@ -82,20 +124,21 @@ class DownloadData:
 
     @staticmethod
     def _is_main_board(ts_code: str) -> bool:
-        """主板判断：SH 以6开头且非688科创板；SZ 以0开头且非300/301创业板。"""
-        code, exchange = ts_code[:6], ts_code[-2:]
-        if exchange == 'SH':
-            return code.startswith('6') and not code.startswith('688')
-        if exchange == 'SZ':
-            return code.startswith('0') and not code.startswith('3')
-        return False  # BJ 及其他交易所一律排除
+        """主板判断：规则统一走 merge_data.is_main_board，避免两处口径漂移。"""
+        return is_main_board(ts_code)
 
     # ------------------------------------------------------------------ #
     #  基础元数据                                                           #
     # ------------------------------------------------------------------ #
 
-    def trade_cal(self, start: str = "20100101", end: str = END_DATE) -> None:
-        """下载交易日历到本地。覆盖写入（每次获取全量）。"""
+    def trade_cal(self, start: str = "20100101", end: str = None) -> None:
+        """
+        下载交易日历到本地。覆盖写入（每次获取全量）。
+
+        默认拉到今天之后 30 天：只拉到今天的话，遇到国庆/春节这种长假，
+        "下一交易日"就会落在日历之外，run_signal 的 T+1 判断会失效。
+        """
+        end = end or (datetime.today() + timedelta(days=30)).strftime('%Y%m%d')
         self._ensure_dir(os.path.dirname(self.TRADE_CAL_PATH))
         print(f"下载交易日历 {start} ~ {end} ...")
         df = self.api.get_trade_calender(startdate=start, enddate=end)
@@ -324,8 +367,120 @@ class DownloadData:
             print(f"  cashflow {ts_code}  {fetch_start}~{end}  +{len(df)}行")
             self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'ann_date', 'end_date'])
 
+    # ------------------------------------------------------------------ #
+    #  名称变更（ST股票识别）                                               #
+    # ------------------------------------------------------------------ #
+
+    def namechange(self, start: str = "20100101", end: str = END_DATE) -> None:
+        """
+        下载股票名称变更记录。
+
+        注意：日常增量更新不再需要它 —— ST 标识改为用 stock_list 的当前名称
+        与本地记录的上一次名称比对（见 merge_data.build_st_flag），
+        不再调用 get_namechange 接口。这里保留仅供首次全量建库时给历史
+        ST 标识打底（data/raw/namechange 有数据时 build_st_flag 会自动用一次）。
+        """
+        self._ensure_dir(self.NAMECHANGE_DIR)
+        for ts_code in self._get_stock_list():
+            path = os.path.join(self.NAMECHANGE_DIR, f"{ts_code}.csv")
+            inc_start = self._incremental_start(path, 'start_date')
+            if inc_start is None:
+                fetch_start = start
+                existing = None
+            elif inc_start > end:
+                continue
+            else:
+                fetch_start = inc_start
+                existing = pd.read_csv(path, dtype={'start_date': str})
+            df = self._call_with_retry(self.api.get_namechange, code=ts_code, startdate=fetch_start, enddate=end)
+            time.sleep(0.5)
+            if df is None or df.empty:
+                continue
+            print(f"  namechange {ts_code}  {fetch_start}~{end}  +{len(df)}行")
+            self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'name', 'start_date'])
+
+    # ------------------------------------------------------------------ #
+    #  多线程并行执行                                                       #
+    # ------------------------------------------------------------------ #
+
+    # 任务名称 -> 方法映射
+    TASK_MAP = {
+        'daily_basic_data': 'daily_basic_data',
+        'moneyflow': 'moneyflow',
+        'margin_detail': 'margin_detail',
+        'top_list': 'top_list',
+        'stock_data': 'stock_data',
+        'adj_factor': 'adj_factor',
+        'income': 'income',
+        'balancesheet': 'balancesheet',
+        'cashflow': 'cashflow',
+        #'namechange': 'namechange',
+        'index_daily': 'index_daily',
+    }
+
+    def run_parallel(self, tasks: list[str] = None, start: str = START_DATE, end: str = END_DATE) -> None:
+        """
+        多线程并行执行指定的下载任务。
+
+        Parameters
+        ----------
+        tasks : list[str]
+            要并行执行的任务名称列表，如 ['stock_data', 'adj_factor', 'income']。
+            为 None 时使用全局配置 PARALLEL_TASKS。
+        start : str
+            起始日期
+        end : str
+            结束日期
+        """
+        if tasks is None:
+            tasks = PARALLEL_TASKS
+
+        # 验证任务名称
+        invalid = [t for t in tasks if t not in self.TASK_MAP]
+        if invalid:
+            raise ValueError(f"无效的任务名称: {invalid}，可选: {list(self.TASK_MAP.keys())}")
+
+        print(f"\n{'='*60}")
+        print(f"多线程并行下载: {tasks}")
+        print(f"线程数: {MAX_WORKERS}")
+        print(f"日期范围: {start} ~ {end}")
+        print(f"{'='*60}\n")
+
+        def _run_task(task_name: str):
+            method = getattr(self, self.TASK_MAP[task_name])
+            print(f"[{task_name}] 开始下载...")
+            t0 = time.time()
+            method(start=start, end=end)
+            elapsed = time.time() - t0
+            print(f"[{task_name}] 完成，耗时 {elapsed:.1f}s")
+            return task_name, elapsed
+
+        results = {}
+        errors = []
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {executor.submit(_run_task, t): t for t in tasks}
+            for future in as_completed(futures):
+                task_name = futures[future]
+                try:
+                    name, elapsed = future.result()
+                    results[name] = elapsed
+                except Exception as e:
+                    print(f"\n[{task_name}] 失败: {e}")
+                    errors.append((task_name, str(e)))
+
+        # 汇总
+        print(f"\n{'='*60}")
+        print("下载汇总:")
+        for name, elapsed in sorted(results.items()):
+            print(f"  ✓ {name}: {elapsed:.1f}s")
+        if errors:
+            print(f"\n失败任务 ({len(errors)}):")
+            for name, err in errors:
+                print(f"  ✗ {name}: {err}")
+        print(f"{'='*60}\n")
+
     def index_daily(self, start: str = START_DATE, end: str = END_DATE) -> None:
-        """下载 SZSE 全部指数的日线行情，支持增量更新。"""
+        """下载 SSE 全部指数的日线行情，支持增量更新。"""
         self._ensure_dir(self.INDEX_DAILY_DIR)
         index_list_path = os.path.join(self.INDEX_BASIC_DIR, "SSE.csv")
         code_list = pd.read_csv(index_list_path)['ts_code'].tolist()
@@ -347,6 +502,50 @@ class DownloadData:
             print(f"  index_daily {ts_code}  {fetch_start}~{end}  +{len(df)}行")
             self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'trade_date'])
 
+    def index_daily_selected(
+        self, start: str = START_DATE, end: str = END_DATE,
+        categories: Optional[list] = None, codes: Optional[list] = None,
+    ) -> None:
+        """
+        只下载 INDEX_SELECTED 中的精选指数日线，支持增量更新。
+
+        与 index_daily() 的区别：后者遍历 SSE.csv 的全部指数（数千个，绝大多数用不上），
+        这里只下择时与回测分析需要的十几个，且覆盖沪深两市与中证系列。
+
+        Parameters
+        ----------
+        categories : list[str] | None   只下指定分类：'scale' / 'style' / 'div'
+        codes      : list[str] | None   只下指定代码，优先级高于 categories
+        """
+        self._ensure_dir(self.INDEX_DAILY_DIR)
+
+        if codes:
+            targets = [(c, self.INDEX_SELECTED.get(c, (c, '-'))) for c in codes]
+        else:
+            targets = [(c, v) for c, v in self.INDEX_SELECTED.items()
+                       if categories is None or v[1] in categories]
+
+        for ts_code, (name, cat) in targets:
+            path = os.path.join(self.INDEX_DAILY_DIR, f"{ts_code}.csv")
+            inc_start = self._incremental_start(path, 'trade_date')
+            if inc_start is None:
+                fetch_start, existing = start, None
+            elif inc_start > end:
+                continue                      # 已是最新的，跳过
+            else:
+                fetch_start = inc_start
+                existing = pd.read_csv(path, dtype={'trade_date': str})
+
+            df = self._call_with_retry(
+                self.api.get_index_daily, ts_code=ts_code,
+                startdate=fetch_start, enddate=end)
+            time.sleep(0.4)
+            if df is None or df.empty:
+                print(f"  index_daily {ts_code} {name}  无数据")
+                continue
+            print(f"  index_daily {ts_code} {name}[{cat}]  {fetch_start}~{end}  +{len(df)}行")
+            self._append_and_save(path, existing, df, dedup_cols=['ts_code', 'trade_date'])
+
 
 if __name__ == '__main__':
     d = DownloadData()  # MAIN_BOARD_ONLY=True，默认只处理主板
@@ -356,21 +555,21 @@ if __name__ == '__main__':
     # d.stock_list()      # 股票列表（含全板块，过滤由 _get_stock_list 控制）
     # d.index_basic()     # 指数基础信息
 
-    # ② 按日期下载（全市场，无需过滤板块）
-    # d.daily_basic_data()
-    # d.moneyflow()
-    # d.margin_detail()
-    # d.top_list()
+    # ② 需要多次请求的任务（按股票或交易日循环下载）放在并行列表中
+    if ENABLE_MULTITHREADING and PARALLEL_TASKS:
+        d.run_parallel()
+    else:
+        # 单线程顺序下载
+        d.stock_data()      # 不复权日线行情
+        d.adj_factor()      # 复权因子（用于计算后复权价格）
+        d.income()
+        d.balancesheet()
+        d.cashflow()
+        # d.namechange()      # 股票名称变更（用于识别ST股）
+        d.daily_basic_data()
+        d.moneyflow()
+        d.margin_detail()
+        d.top_list()
 
-    # ③ 按股票下载（受 MAIN_BOARD_ONLY 控制，只处理主板）
-    # d.stock_data()      # 不复权日线行情
-    # d.adj_factor()      # 复权因子（用于计算后复权价格）
-    d.income()
-    d.balancesheet()
-    d.cashflow()
-
-    # ④ 指数日线（依赖 index_basic 已下载）
-    # d.index_daily()
-
-    # ④ 指数日线（依赖 index_basic 已下载）
+    # ③ 指数日线（依赖 index_basic 已下载，暂时不做）
     # d.index_daily()

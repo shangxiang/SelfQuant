@@ -28,100 +28,217 @@ class LGBMConfig:
         # self.label_lookahead: int = 11   # label 需要 T+6 价格才能确认
 
         # ---- 因子列（树模型不需要标准化，直接用原始值）----
+        # 参与建模的因子列（原始列名，树模型用）
+        # 共 198 个，按因子族分组；想裁剪直接注释掉对应行即可
         self.factor_cols = [
-            # 估值类
+            # ---- 技术 / 量价 / 资金（32）----
             'pe_ttm',
             'pb',
             'dv_ttm',
-            # 技术类
-            'macd',
-            'cci',
-            'force_index_smoothed',
             'net_mf_amount',
+            'turnover_rate_x',
+            'volume_ratio',
+            'total_mv',
+            'rzye',
+            'debt_ratio',
+            'dif',
+            'dea',
+            'macd',
             'K',
             'D',
             'J',
-            'rsi',
-            'turnover_rate_x',
-            'volume_ratio',
             'positive_flow',
             'negative_flow',
-            'total_mv',
-            'volatility_20d',
-            'reversal_5d',
-            # 二值信号（不做标准化）
-            'macd_divergence',
+            'mfi',
+            'rsi',
+            'cci',
+            'raw_force_index',
+            'force_index_smoothed',
+            'force_index',
+            'vwap',
+            'close_to_vwap_ratio',
+            'mtm_margin_balance_change',
             'macd_air_refuel',
-            # 基本面类（行业+市值中性化后标准化）
+            'macd_divergence',
+            'big_order_ratio',
+            # 'lhb_strength_5d',
+            'vol_breakout',
+            'adx',
+            # ---- Alpha101（31）----
+            'alpha101_1',
+            'alpha101_2',
+            'alpha101_3',
+            'alpha101_4',
+            'alpha101_5',
+            'alpha101_6',
+            'alpha101_7',
+            'alpha101_8',
+            'alpha101_9',
+            'alpha101_10',
+            'alpha101_11',
+            'alpha101_12',
+            'alpha101_13',
+            'alpha101_14',
+            'alpha101_15',
+            'alpha101_16',
+            'alpha101_17',
+            'alpha101_18',
+            'alpha101_19',
+            'alpha101_20',
+            'alpha101_22',
+            'alpha101_23',
+            'alpha101_25',
+            'alpha101_33',
+            'alpha101_34',
+            'alpha101_41',
+            'alpha101_52',
+            'alpha101_53',
+            'alpha101_54',
+            'alpha101_57',
+            'alpha101_101',
+            # ---- 动量（19）----
+            'momentum_12_1',
+            'ret_10d',
+            'ret_20d',
+            'ret_60d',
+            'return_5d',
+            'return_21d',
+            'return_42d',
+            'return_63d',
+            'return_126d',
+            'return_252d',
+            'ma_20d',
+            'price_position_ir_60d',
+            'rsrs',
+            'days_down_up',
+            'return_std_21d',
+            'return_std_42d',
+            'return_std_63d',
+            'return_std_126d',
+            'return_std_252d',
+            # ---- 风险/波动（12）----
+            'volatility_20d',
+            'high_low_spread',
+            'sharpe_60d',
+            'sharpe_750d',
+            'adjusted_sharpe_750d',
+            'high_low_21d',
+            'high_low_42d',
+            'high_low_63d',
+            'high_low_126d',
+            'high_low_252d',
+            'days_beyond_upper_lower_21d',
+            'log_price',
+            # ---- 流动性（30）----
+            'avg_turnover_5d',
+            'avg_turnover_10d',
+            'avg_turnover_20d',
+            'amount_ma_20d',
+            'turnover_ma_20d',
+            'sum_abs_rtn_amount_20d',
+            'std_turnover_21d',
+            'avg_turnover_21d',
+            'std_turnover_42d',
+            'avg_turnover_42d',
+            'std_turnover_63d',
+            'avg_turnover_63d',
+            'std_turnover_126d',
+            'avg_turnover_126d',
+            'std_turnover_252d',
+            'avg_turnover_252d',
+            'bias_turn_21d_252d',
+            'bias_std_turn_21d_252d',
+            'bias_turn_42d_252d',
+            'bias_turn_63d_252d',
+            'bias_turn_126d_252d',
+            'bias_turn_21d_504d',
+            'bias_std_turn_21d_504d',
+            'bias_turn_42d_504d',
+            'bias_std_turn_42d_504d',
+            'bias_turn_63d_504d',
+            'bias_std_turn_63d_504d',
+            'bias_turn_126d_504d',
+            'bias_std_turn_126d_504d',
+            'turnover_ma_20d_120d',
+            # ---- 质量/成长（20）----
             'gross_margin',
-            'debt_ratio',
             'roe_ttm',
             'revenue_growth_yoy',
             'profit_growth_yoy',
             'accruals',
-            'mfi',
-            'vwap',
-            'close_to_vwap_ratio',
-            'mtm_margin_balance_change',
-            'big_order_ratio',
-            # 'lhb_strength_5d',
-            'rzye',
-            # Fama-French 风格因子
+            'asset_growth_yoy',
+            # 'roa_ttm',
+            # 'net_margin',
+            'debt_to_assets',
+            # 'current_ratio',
+            # 'quick_ratio',
+            # 'cash_flow_to_debt',
+            # 'earnings_quality',
+            'roe_growth_yoy',
+            # 'eps_growth_yoy',
+            # 'revenue_growth_qoq',
+            # 'profit_growth_qoq',
+            'gross_margin_growth',
+            # 'net_margin_growth',
+            # 'ocf_growth_yoy',
+            # ---- 价值/风格（16）----
             'size_factor',
-            'smb_squared',
             'value_factor',
             'cma_factor',
-            'asset_growth_yoy',
-            'momentum_12_1',
-            # # 中短期动量 / 技术形态因子
-            'ret_10d',
-            # 'ret_20d',
-            # 'ret_60d',
+            'smb_squared',
+            'smb_mom',
+            'smb_squared_mom',
+            'hml_rmw',
+            'smb_hml',
+            'vol_mom',
+            'size',
+            'float_size',
+            # 'earnings_to_price',
+            # 'book_to_market',
+            # 'ocf_to_market',
+            # 'fcf_to_market',
+            # 'sales_to_market',
+            # ---- 反转（4）----
+            'reversal_5d',
             'dist_52w_high',
+            'small_cap_reversal_21d',
+            'price_dist',
+            # ---- 微观结构/形态（12）----
             'close_ma20_ratio',
             'up_day_ratio_20',
             'vol_price_corr_20d',
-            'adx',
-            # # 高频痕迹因子
             'turnover_amplitude_ratio',
-            # 'long_shadow_freq',
-            # 'doji_freq',
-            # 'intraday_drawdown',
+            'long_shadow_freq',
+            'doji_freq',
+            'intraday_drawdown',
             'gap_vs_range_ratio',
-            # 高阶交叉因子
-            # 'smb_mom',
-            # 'smb_squared_mom',
-            # 'hml_rmw',
-            # 'smb_hml',
-            # 'vol_mom',
-            # 更多时序因子
-            'K_chg_5d',
-            'K_chg_10d',
-            'D_chg_5d',   
-            'D_chg_10d',   
-            'J_chg_5d',   
-            'J_chg_10d',
-            # 'rsi_chg_5d',   
-            'rsi_chg_10d',   
-            'macd_chg_5d',  
-            'macd_chg_10d',
-            'adx_chg_5d',   
-            # 'adx_chg_10d',
-            'volatility_20d_chg_5d',   
-            'volatility_20d_chg_10d',
-            'turnover_rate_x_chg_5d',  
-            'turnover_rate_x_chg_10d',
-            'reversal_5d_chg_5d',   
-            'reversal_5d_chg_10d',
-            'momentum_12_1_chg_5d',    
-            # 'momentum_12_1_chg_10d',
-            'rzye_chg_5d',  
-            'rzye_chg_10d',
-            # 多项式形状因子
             'poly_close_a1',
             'poly_close_a2',
-            # 'poly_vol_a1',
+            'poly_vol_a1',
             'poly_vol_a2',
+            # ---- 时序差分（22）----
+            'K_chg_5d',
+            'K_chg_10d',
+            'D_chg_5d',
+            'D_chg_10d',
+            'J_chg_5d',
+            'J_chg_10d',
+            'rsi_chg_5d',
+            'rsi_chg_10d',
+            'macd_chg_5d',
+            'macd_chg_10d',
+            'adx_chg_5d',
+            'adx_chg_10d',
+            'volatility_20d_chg_5d',
+            'volatility_20d_chg_10d',
+            'turnover_rate_x_chg_5d',
+            'turnover_rate_x_chg_10d',
+            'reversal_5d_chg_5d',
+            'reversal_5d_chg_10d',
+            'momentum_12_1_chg_5d',
+            'momentum_12_1_chg_10d',
+            'rzye_chg_5d',
+            'rzye_chg_10d',
         ]
 
         # ---- 市值过滤（单位：万元；None 表示不过滤）----
@@ -131,7 +248,11 @@ class LGBMConfig:
         self.filter_st: bool = True
 
         # ---- 滚动训练窗口（交易日数）----
-        self.window: int = 40  # 比 ElasticNet 稍大，给树模型更多样本
+        # 滚动训练窗口（交易日数）
+        # 实测（5 个基准日 × 3 种窗口，211 特征）：window=40 的 RankIC 只有 0.025，
+        # 80~150 天能到 0.038~0.052。label_period=5 时 40 天窗口在「时间维度」上
+        # 只有 8 个独立样本，太薄。取 120 兼顾样本量与时效性。
+        self.window: int = 60
 
         # ---- 时间衰减权重（半衰期，单位：交易日；None 表示不使用）----
         # 权重公式：w = 2^(-(today_idx - j) / weight_halflife)
@@ -155,18 +276,22 @@ class LGBMConfig:
         #     'verbose':          -1,
         #     'random_state':     42,
         # }
+        # 以下取值由 _tune_hp2.py 的网格诊断确定（211 特征 / 5 个基准日平均）：
+        #   较原值（70/0.05/3/7/0.6/5.0）RankIC 0.0385 → 0.0478，ICIR 0.480 → 0.519
+        # 特征数从 55 涨到 211 后，colsample 必须下调：0.6 时每棵树看 127 个特征，
+        # 而其中换手率族/动量族高度同源，树之间会趋同、集成多样性尽失。
         self.lgbm_params = {
             'objective':         'regression',
             'metric':            'rmse',
-            'n_estimators':      70,
-            'learning_rate':     0.05,
-            'max_depth':         3,
-            'num_leaves':        7,
+            'n_estimators':      300,
+            'learning_rate':     0.03,   # 树多了就相应降 lr，保持总学习量
+            'max_depth':         4,      # 原 3 层配 211 特征偏欠拟合
+            'num_leaves':        15,
             'min_child_samples': 300,
             'subsample':         0.8,
-            'colsample_bytree':  0.6,
+            'colsample_bytree':  0.3,    # 原 0.6；每棵树约看 42 个特征
             'reg_alpha':         0.1,
-            'reg_lambda':        5.0,  # quantile 本身已偏向头部，正则适当放松
+            'reg_lambda':        1.0,    # 原 5.0；实测 1.0 的 top10 收益更高
             'n_jobs':            -1,
             'verbose':           -1,
             'random_state':      42,
@@ -199,8 +324,43 @@ class LGBMConfig:
         # 对截面内 rank 前 top_weight_pct 的股票额外放大损失权重
         # 迫使模型优先把头部预测准，而非整体 RMSE 最小化
         # None 表示不使用（与原始等权等价）
-        self.top_weight_pct:    float = 0.1   # top 10% 的股票加权
+        # 只买 top5~top10，所以加权对象必须是真正的头部（3000 只里的 0.5%~1%），
+        # 而不是 top 10%（300 只）—— 后者会让梯度浪费在根本不会买的股票上
+        self.top_weight_pct:    float = 0.01  # top 1% 的股票加权
         self.top_weight_factor: float = 3.0   # 额外权重倍数（1.0=不加权，3.0=3倍权重）
+
+        # ---- 行业 / 市场 beta 特征 ----
+        # 由 strategy/market_features.py 在 DataLoader 层动态附加，无需重跑标准化。
+        # 目标若是 top-K 总收益，行业轮动是真实可赚的钱，必须显式喂给模型。
+
+        # ---- 因子集 ----
+        # 'curated' = 只用上面手工挑选的列表
+        # 'all'     = 手工列表 ∪ 数据中发现的全部因子（Alpha101 / 动量 / 风险 /
+        #             流动性 / 质量成长 / 价值等此前未被启用的族会一并进来）
+        self.factor_set: str = 'curated'
+        # 'raw' = 原始因子列名（树模型）；'standard' = <因子>_standard（线性模型）
+        self.factor_style: str = 'raw'
+        self.add_market_features: bool = True
+        self.market_feature_zscore: bool = True   # 截面 z-score，线性模型必需
+        self.factor_cols += [
+            'ind_ret_1d', 'ind_ret_5d', 'ind_ret_20d',
+            'ind_up_5d', 'ind_up_20d',
+            'ind_flow_5d', 'ind_flow_20d',
+            'ind_mom_rank', 'ind_pe_z',
+            'mkt_ret_5d', 'mkt_ret_20d', 'mkt_up_1d', 'mkt_up_5d',
+        ]
+
+        # ---- 训练样本抽样 ----
+        # label_period=5 时相邻交易日的 label 共享未来价格，时间上不独立。
+        # sample_step=5 可让训练样本近似无重叠（配合更大的 window 使用）。
+        self.sample_step: int = 1
+
+
+        # 去重（防御）：factor_cols 若出现重名，pandas 的 df[cols] 会返回多列，
+        # 触发 "Columns must be same length as key"
+        _seen = set()
+        self.factor_cols = [c for c in self.factor_cols
+                            if not (c in _seen or _seen.add(c))]
 
 
 class LGBMStrategy(BaseStrategy):
@@ -248,6 +408,9 @@ class LGBMStrategy(BaseStrategy):
 
         for j in range(max(0, today_idx - self.cfg.window + 1), today_idx + 1):
             if j + self.cfg.label_lookahead > today_idx:
+                continue
+            # 样本抽样：让训练样本在时间上近似无重叠
+            if self.cfg.sample_step > 1 and (today_idx - j) % self.cfg.sample_step != 0:
                 continue
 
             t_date = all_dates[j]

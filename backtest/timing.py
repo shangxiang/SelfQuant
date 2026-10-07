@@ -115,7 +115,7 @@ class StyleConvergenceTiming(BaseTimingStrategy):
     """
     大小盘风格趋同择时。
 
-    当小微盘（932000.CSI）与大中盘（000510.CSI）同时满足以下条件时，
+    当小微盘（932000.CSI）与大中盘（000510.SH）同时满足以下条件时，
     判定市场处于"系统性下行"状态，将建仓比例降为 avoid_ratio（默认空仓）：
 
         条件1：滚动 roll_window 日相关系数 > corr_threshold（两者高度趋同）
@@ -132,7 +132,7 @@ class StyleConvergenceTiming(BaseTimingStrategy):
     def __init__(
         self,
         small_file: str = 'data/raw/index_daily/932000.CSI.csv',
-        large_file: str = 'data/raw/index_daily/000510.CSI.csv',
+        large_file: str = 'data/raw/index_daily/000510.SH.csv',
         roll_window: int = 5,
         corr_threshold: float = 0.75,
         avoid_ratio: float = 0.0,
@@ -256,7 +256,7 @@ class BlindWindowTiming(BaseTimingStrategy):
     Parameters
     ----------
     small_file      : 小微盘指数日线 CSV（932000.CSI，需含 trade_date、close 列）
-    large_file      : 大中盘指数日线 CSV（000510.CSI，需含 trade_date、close 列）
+    large_file      : 大中盘指数日线 CSV（000510.SH，需含 trade_date、close 列）
     signal_window   : 计算 corr/vol 所用的滚动窗口天数，默认 7（取约 6 个日收益）
     corr_pct        : corr_5d 的历史分位数阈值，低于此分位数时触发空仓，默认 20
     vol_pct         : l_vol 的历史分位数阈值，低于此分位数时触发空仓，默认 33
@@ -269,7 +269,7 @@ class BlindWindowTiming(BaseTimingStrategy):
     def __init__(
         self,
         small_file: str = 'data/raw/index_daily/932000.CSI.csv',
-        large_file: str = 'data/raw/index_daily/000510.CSI.csv',
+        large_file: str = 'data/raw/index_daily/000510.SH.csv',
         signal_window: int = 7,
         corr_pct: float = 20.0,
         vol_pct: float = 33.0,
@@ -641,7 +641,7 @@ class HybridTiming(BaseTimingStrategy):
     Parameters
     ----------
     small_file     : 小微盘指数日线 CSV（932000.CSI，需含 trade_date, close, pct_chg 列）
-    large_file     : 大中盘指数日线 CSV（000510.CSI）
+    large_file     : 大中盘指数日线 CSV（000510.SH）
     signal_window  : BlindWindow 滚动窗口（corr/vol 计算，默认 7）
     corr_pct       : BlindWindow 相关系数历史分位数阈值（默认 20）
     vol_pct        : BlindWindow 波动率历史分位数阈值（默认 33）
@@ -655,7 +655,7 @@ class HybridTiming(BaseTimingStrategy):
     def __init__(
         self,
         small_file: str = 'data/raw/index_daily/932000.CSI.csv',
-        large_file: str = 'data/raw/index_daily/000510.CSI.csv',
+        large_file: str = 'data/raw/index_daily/000510.SH.csv',
         signal_window: int = 7,
         corr_pct: float = 20.0,
         vol_pct: float = 33.0,

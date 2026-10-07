@@ -10,6 +10,50 @@ from backtest.timing import BaseTimingStrategy
 from typing import Optional
 
 
+def resolve_date_range(all_dates: list, start_date: str = None, end_date: str = None) -> tuple:
+    """
+    把用户传入的起止日期对齐到实际存在的交易日上。
+
+    对齐规则（只内缩、不外扩，避免用到区间外的数据）：
+        起始日 → >= start_date 的第一个交易日
+        结束日 → <= end_date   的最后一个交易日
+
+    这样传入节假日/周末（如 20260925 中秋休市）不会再抛 ValueError。
+
+    Parameters
+    ----------
+    all_dates  : list[str]  升序的交易日列表
+    start_date : str        YYYYMMDD，None 表示取第一个交易日
+    end_date   : str        YYYYMMDD，None 表示取最后一个交易日
+
+    Returns
+    -------
+    (start_eff, end_eff) : tuple[str, str]  对齐后的起止交易日
+    """
+    if not all_dates:
+        raise ValueError('交易日历为空：请先运行 run_signal.py 生成 data/market/ 分区数据')
+
+    start_date = start_date or all_dates[0]
+    end_date = end_date or all_dates[-1]
+
+    after = [d for d in all_dates if d >= start_date]
+    if not after:
+        raise ValueError(f'开始日 {start_date} 晚于本地最后一个交易日 {all_dates[-1]}')
+    start_eff = after[0]
+
+    before = [d for d in all_dates if d <= end_date]
+    if not before:
+        raise ValueError(f'结束日 {end_date} 早于本地第一个交易日 {all_dates[0]}')
+    end_eff = before[-1]
+
+    if start_eff > end_eff:
+        raise ValueError(
+            f'区间 {start_date} ~ {end_date} 内没有可用交易日'
+            f'（邻近交易日：{start_eff} / {end_eff}）'
+        )
+    return start_eff, end_eff
+
+
 class BacktestEngine:
     """
     模拟交易回测引擎。
@@ -60,6 +104,8 @@ class BacktestEngine:
         # 未指定卖出策略时，默认按 config.holding_period 持有后全部清仓
         self.sell_strategy = sell_strategy if sell_strategy is not None else HoldNDaysSellStrategy(config.holding_period)
         self.log_file = open('tmp.csv', 'w')
+        # 交易成本台账：佣金 / 印花税 / 滑点 / 成交额，report() 里汇总展示
+        self.costs = {'commission': 0.0, 'stamp_duty': 0.0, 'slippage': 0.0, 'turnover': 0.0}
 
     # ------------------------------------------------------------------ #
     #  内部工具                                                             #
@@ -76,11 +122,13 @@ class BacktestEngine:
         price_index : pd.DataFrame   以 ts_code 为索引的当日截面数据
         """
         for stock, pos in positions.items():
-            pos['current_price'] = (
-                price_index.loc[stock, self.PRICE_COL]
-                if stock in price_index.index
-                else pos['buy_price']
-            )
+            if stock not in price_index.index:
+                # 今日该股票无行情（停牌等），沿用买入价估值
+                pos['current_price'] = pos['buy_price']
+                continue
+            px = price_index.loc[stock, self.PRICE_COL]
+            # 停牌日的价格可能是 NaN，直接赋进去会把 NAV 变成 NaN
+            pos['current_price'] = pos['buy_price'] if pd.isna(px) else px
 
     def _holdings_value(self, positions: dict) -> float:
         """计算当前持仓总市值（按 current_price 估值）。"""
@@ -91,7 +139,8 @@ class BacktestEngine:
     # ------------------------------------------------------------------ #
 
     def _execute_sells(
-        self, positions: dict, today: str, all_dates: list, trade_log: list
+        self, positions: dict, today: str, all_dates: list, trade_log: list,
+        price_index: pd.DataFrame = None
     ) -> float:
         """
         调用卖出策略获取各持仓的 keep_ratio，按比例卖出对应股份，返回卖出所得现金。
@@ -111,21 +160,32 @@ class BacktestEngine:
         all_dates : list[str]   完整交易日历
         trade_log : list        交易记录，追加 SELL 记录
 
+        price_index : pd.DataFrame   当日截面（用于判断跌停），可为 None
+
         Returns
         -------
-        float  本次卖出所得现金总额（扣除佣金后）
+        float  本次卖出所得现金总额（已扣佣金、印花税与滑点）
         """
         # 将 dict 转为 list[dict] 传给卖出策略（策略接口约定）
         pos_list = [{'ts_code': s, **pos} for s, pos in positions.items()]
         keep_ratios = self.sell_strategy.evaluate(pos_list, today, all_dates)
+
+        pct_col = (next((c for c in ('pct_chg', 'pct_change') if c in price_index.columns), None)
+                   if price_index is not None else None)
 
         cash_from_sells = 0.0
         for stock, ratio in keep_ratios.items():
             if stock not in positions or ratio >= 1.0:
                 continue
             pos = positions[stock]
-            if pos.get('current_price') is None:
+            if pos.get('current_price') is None or pd.isna(pos['current_price']):
                 continue
+
+            # 跌停无法卖出（一字跌停完全没有对手盘）
+            if self.cfg.enable_limit_check and pct_col is not None and stock in price_index.index:
+                pct = price_index.loc[stock, pct_col]
+                if pd.notna(pct) and pct <= self.cfg.limit_down_pct:
+                    continue
 
             # ratio=0.0 时全卖，否则按 (1-ratio) 比例卖出
             sell_shares = pos['shares'] if ratio == 0.0 else int(pos['shares'] * (1 - ratio))
@@ -134,10 +194,16 @@ class BacktestEngine:
             if sell_shares <= 0:
                 continue
 
-            sell_price = pos['current_price']
-            proceeds = sell_shares * sell_price * (1 - self.cfg.commission)
+            ref_price = pos['current_price']                       # 收盘价（估值用）
+            sell_price = ref_price * (1 - self.cfg.slippage)       # 实际成交价（含滑点）
+            proceeds = sell_shares * sell_price * (1 - self.cfg.commission - self.cfg.stamp_duty)
             cash_from_sells += proceeds
             trade_log.append((today, 'SELL', stock, sell_shares, sell_price, proceeds))
+
+            self.costs['commission'] += sell_shares * sell_price * self.cfg.commission
+            self.costs['stamp_duty'] += sell_shares * sell_price * self.cfg.stamp_duty
+            self.costs['slippage']   += sell_shares * (ref_price - sell_price)
+            self.costs['turnover']   += sell_shares * sell_price
 
             pos['shares'] -= sell_shares
             if pos['shares'] <= 0:
@@ -201,14 +267,25 @@ class BacktestEngine:
             if stock not in price_index.index:
                 # 今日该股票无行情（停牌等），跳过
                 continue
-            buy_price = price_index.loc[stock, self.PRICE_COL]
             # 买入当天涨幅（T+1 日，即实际成交日）
             pct_chg = price_index.loc[stock, pct_col] if pct_col else float('nan')
+            # 涨停无法买入
+            if self.cfg.enable_limit_check and pd.notna(pct_chg) and pct_chg >= self.cfg.limit_up_pct:
+                continue
+
+            ref_price = price_index.loc[stock, self.PRICE_COL]     # 收盘价
+            if pd.isna(ref_price):
+                # 停牌或数据缺失，无法成交
+                continue
+            buy_price = ref_price * (1 + self.cfg.slippage)        # 实际成交价（含滑点）
             # 按 100 股/手取整，A 股最小交易单位为 1 手（100 股）
             shares = int(per_stock / buy_price / 100) * 100
             if shares <= 0:
                 continue
             cost = shares * buy_price * (1 + self.cfg.commission)
+            self.costs['commission'] += shares * buy_price * self.cfg.commission
+            self.costs['slippage']   += shares * (buy_price - ref_price)
+            self.costs['turnover']   += shares * buy_price
             cash_spent += cost
             positions[stock] = {
                 'buy_date': today,
@@ -246,13 +323,22 @@ class BacktestEngine:
             capital = self.cfg.initial_capital
 
         all_dates = self.loader.get_trading_dates()
-        # 截取回测区间内的交易日列表
+
+        # 起止日可能落在非交易日（周末/节假日，如 20260925 中秋休市），
+        # 先对齐到区间内实际存在的交易日，再切片
+        req_start, req_end = start_date, end_date
+        start_date, end_date = resolve_date_range(all_dates, start_date, end_date)
+        if (start_date, end_date) != (req_start, req_end):
+            print(f'  ⚠ 回测起止日已对齐到最近交易日：{req_start} → {start_date}，'
+                  f'{req_end} → {end_date}（非交易日不参与回测）')
+
         trade_dates = all_dates[all_dates.index(start_date): all_dates.index(end_date) + 1]
 
         if self.timing is not None:
             # 预计算全区间内的择时状态（如均线序列），避免在每日循环内重复读文件
             self.timing.prepare(start_date, end_date)
         self.strategy.reset()
+        self.costs = {'commission': 0.0, 'stamp_duty': 0.0, 'slippage': 0.0, 'turnover': 0.0}
 
         cash = capital                          # 当前账户现金
         positions: dict = {}                    # {ts_code: {buy_date, buy_price, shares, current_price}}
@@ -288,7 +374,8 @@ class BacktestEngine:
             # ③ 执行卖出策略（用今日收盘价结算）
             cash_from_sells = 0
             if positions:
-                cash_from_sells = self._execute_sells(positions, today, all_dates, trade_log)
+                cash_from_sells = self._execute_sells(positions, today, all_dates,
+                                                      trade_log, price_index)
                 cash += cash_from_sells
                 if cash_from_sells > 0:
                     batch_sell_proceeds += cash_from_sells   # 累积本批所有卖出（含止损中途卖出）
@@ -492,3 +579,13 @@ class BacktestEngine:
         print(f"日胜率:       {win_rate:>14.2%}")
         print(f"（统计区间: {nav_active['date'].iloc[0]} ~ {nav_active['date'].iloc[-1]}，"
               f"共 {len(nav_active)} 个交易日，预热期已排除）")
+
+        # ---- 交易成本明细 ----
+        total_cost = (self.costs['commission'] + self.costs['stamp_duty']
+                      + self.costs['slippage'])
+        print("-" * 30)
+        print(f"佣金累计:     {self.costs['commission']:>15,.0f}")
+        print(f"印花税累计:   {self.costs['stamp_duty']:>15,.0f}")
+        print(f"滑点成本:     {self.costs['slippage']:>15,.0f}")
+        print(f"成本合计:     {total_cost:>15,.0f}  （占初始资金 {total_cost / capital:.2%}，"
+              f"约占交易额 {total_cost / max(self.costs['turnover'], 1e-9):.3%}）")

@@ -3,7 +3,7 @@ analyse/style_convergence.py
 
 大小盘风格趋同评估。
 
-通过滚动相关性检测小微盘（932000.CSI）与大盘（000510.CSI）日收益率
+通过滚动相关性检测小微盘（932000.CSI）与大盘（000510.SH）日收益率
 的同步程度，相关性越高说明两者走势越趋同、风格差异越小。
 
 用法：
@@ -13,7 +13,7 @@ analyse/style_convergence.py
 
 数据依赖：
     data/raw/index_daily/932000.CSI.csv   中证2000（小微盘）
-    data/raw/index_daily/000510.CSI.csv   中证500（大中盘）
+    data/raw/index_daily/000510.SH.csv   中证A500（大中盘）
 """
 
 import sys
@@ -34,9 +34,9 @@ plt.rcParams['axes.unicode_minus'] = False
 # ------------------------------------------------------------------ #
 
 SMALL_FILE  = 'data/raw/index_daily/932000.CSI.csv'   # 中证2000（小微盘）
-LARGE_FILE  = 'data/raw/index_daily/000510.CSI.csv'   # 中证500（大中盘）
+LARGE_FILE  = 'data/raw/index_daily/000510.SH.csv'   # 中证A500（大中盘）
 SMALL_NAME  = '中证2000（小微盘）'
-LARGE_NAME  = '中证500（大中盘）'
+LARGE_NAME  = '中证A500（大中盘）'
 SMALL_COLOR = '#d73027'
 LARGE_COLOR = '#4575b4'
 

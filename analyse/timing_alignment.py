@@ -38,7 +38,7 @@ BATCH_FILE  = os.path.join(NAV_DIR, 'batch_alias_profit.csv')
 NAV_FILE    = os.path.join(NAV_DIR, 'nav.csv')
 
 SMALL_FILE = 'data/raw/index_daily/932000.CSI.csv'
-LARGE_FILE = 'data/raw/index_daily/000510.CSI.csv'
+LARGE_FILE = 'data/raw/index_daily/000510.SH.csv'
 
 # 每种择时策略的配置：(label, callable -> {date_str: ratio})
 # 在 build_timing_maps() 中统一实例化，避免重复读取文件

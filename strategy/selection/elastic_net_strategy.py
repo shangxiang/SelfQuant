@@ -20,7 +20,11 @@ class ElasticNetConfig:
 
         # ---- 列名约定 ----
         self.stock_col = 'ts_code'   # 股票代码列
-        self.label_col = 'label_standard'     # 预测目标列（未来 N 日收益率）
+        # 预测目标列（未来 N 日收益率）
+        # 'label'          = 原始总收益，包含行业/市值 beta → beta + alpha 总体最优
+        # 'label_standard' = 行业市值中性化后的纯 alpha（原默认）
+        # 目标是 top-K 总收益时用 'label'：中性化会主动丢掉行业轮动这块真金白银
+        self.label_col = 'label'
         # label 所代表的持有期天数，用于多空收益的非重叠采样和夏普年化
         # 与 label_col 对应：'label'=5, 'label_10'=10, 'label_25'=25
         self.label_period: int = 5
@@ -32,96 +36,238 @@ class ElasticNetConfig:
         self.label_lookahead: int = 6
 
         # ---- 参与建模的因子列 ----
+        # 参与建模的因子列（<因子>_standard 列名，线性模型用）
+        # 共 224 个，按因子族分组；想裁剪直接注释掉对应行即可
         self.factor_cols = [
-            # 估值类
-            'pe_ttm_standard',          # 市盈率（TTM）
-            'pb_standard',              # 市净率
-            'dv_ttm_standard',          # 股息率（TTM）
-            # 技术类
-            'macd_standard',            # MACD
-            'cci_standard',             # CCI
-            'force_index_smoothed_standard', # 力量指数（平滑）
-            'net_mf_amount_standard',     # 主力净流入
+            # ---- 技术 / 量价 / 资金（90）----
+            'total_mv_standard',
+            'macd_divergence',
+            'macd_air_refuel',
+            'circ_mv_standard',
+            'close_x_standard',
+            'close_y_standard',
+            'dif_standard',
+            'dea_standard',
+            'macd_standard',
             'K_standard',
             'D_standard',
             'J_standard',
-            'rsi_standard',             # RSI
-            'turnover_rate_x_standard', # 换手率
-            'volume_ratio_standard',    # 量比
-            'positive_flow_standard',   # 主力净流入
-            'negative_flow_standard',   # 主力净流出
-            'total_mv_standard',        # 总市值
-            'volatility_20d_standard',  # 20 日波动率
-            'reversal_5d_standard',     # 5 日反转因子
-            # 二值信号（不做标准化）
-            'macd_divergence',          # MACD 底背离信号
-            'macd_air_refuel',          # MACD 零轴附近缩量信号
-            # 基本面类（行业+市值中性化后标准化）
-            'gross_margin_standard',        # 毛利率
-            'debt_ratio_standard',          # 资产负债率
-            'roe_ttm_standard',             # ROE（TTM）
-            'revenue_growth_yoy_standard',  # 营收同比增速
-            'profit_growth_yoy_standard',   # 净利润同比增速
-            'accruals_standard',            # 应计项目（盈利质量）
-            'mfi_standard',                 # 资金流量
-            'vwap_standard',                # 价格偏离
-            'close_to_vwap_ratio_standard', # 收盘价与 VWAP 偏离率
-            'mtm_margin_balance_change_standard',   # 融资余额动量
-            'big_order_ratio_standard',     # 大单净流入
-            'lhb_strength_5d_standard',     # 龙虎榜强度
-            'rzye_standard',                # 资产负债率（TTM）
-            # Fama-French 风格因子
-            'size_factor_standard',         # 规模因子（-ln 流通市值），直接 z-score
-            'smb_squared_standard',         # 规模²，直接 z-score
-            'value_factor_standard',        # 价值因子（1/PB），中性化后标准化
-            'cma_factor_standard',          # 投资因子（资产增速取反），中性化后标准化
-            'asset_growth_yoy_standard',    # 资产增速（CMA 代理），中性化后标准化
-            'momentum_12_1_standard',       # 12-1 月动量，中性化后标准化
-            # 高阶交叉因子
-            'smb_mom_standard',             # 规模×动量
-            'smb_squared_mom_standard',     # 规模²×动量
-            'hml_rmw_standard',             # 价值×盈利质量
-            'smb_hml_standard',             # 规模×价值
-            'vol_mom_standard',             # 波动率×动量（动量崩溃信号）
-            # 中短期动量 / 技术形态因子
+            'rsi_standard',
+            'cci_standard',
+            'close_to_vwap_ratio_standard',
+            'pe_standard',
+            'pe_ttm_standard',
+            'pb_standard',
+            'ps_standard',
+            'ps_ttm_standard',
+            'dv_ratio_standard',
+            'dv_ttm_standard',
+            'total_share_standard',
+            'float_share_standard',
+            'free_share_standard',
+            'amount_x_standard',
+            'turnover_rate_x_standard',
+            'turnover_rate_f_standard',
+            'volume_ratio_standard',
+            'buy_sm_vol_standard',
+            'buy_sm_amount_standard',
+            'sell_sm_vol_standard',
+            'sell_sm_amount_standard',
+            'buy_md_vol_standard',
+            'buy_md_amount_standard',
+            'sell_md_vol_standard',
+            'sell_md_amount_standard',
+            'buy_lg_vol_standard',
+            'buy_lg_amount_standard',
+            'sell_lg_vol_standard',
+            'sell_lg_amount_standard',
+            'buy_elg_vol_standard',
+            'buy_elg_amount_standard',
+            'sell_elg_vol_standard',
+            'sell_elg_amount_standard',
+            'net_mf_vol_standard',
+            'net_mf_amount_standard',
+            'positive_flow_standard',
+            'negative_flow_standard',
+            'mfi_standard',
+            'raw_force_index_standard',
+            'force_index_smoothed_standard',
+            'force_index_standard',
+            'vwap_standard',
+            'mtm_margin_balance_change_standard',
+            'big_order_ratio_standard',
+            'debt_ratio_standard',
+            'adx_standard',
+            'K_chg_5d_standard',
+            'K_chg_10d_standard',
+            'D_chg_5d_standard',
+            'D_chg_10d_standard',
+            'J_chg_5d_standard',
+            'J_chg_10d_standard',
+            'rsi_chg_5d_standard',
+            'rsi_chg_10d_standard',
+            'macd_chg_5d_standard',
+            'macd_chg_10d_standard',
+            'adx_chg_5d_standard',
+            'adx_chg_10d_standard',
+            'turnover_rate_x_chg_5d_standard',
+            'turnover_rate_x_chg_10d_standard',
+            'rzye_chg_5d_standard',
+            'rzye_chg_10d_standard',
+            'amount_y_standard',
+            'turnover_rate_y_standard',
+            'l_sell_standard',
+            'l_buy_standard',
+            'l_amount_standard',
+            'net_amount_standard',
+            'net_rate_standard',
+            'amount_rate_standard',
+            'rzye_standard',
+            'rqye_standard',
+            'rzmre_standard',
+            'rqyl_standard',
+            'rzche_standard',
+            'rqchl_standard',
+            'rqmcl_standard',
+            'rzrqye_standard',
+            # ---- Alpha101（31）----
+            'alpha101_1_standard',
+            'alpha101_2_standard',
+            'alpha101_3_standard',
+            'alpha101_4_standard',
+            'alpha101_5_standard',
+            'alpha101_6_standard',
+            'alpha101_7_standard',
+            'alpha101_8_standard',
+            'alpha101_9_standard',
+            'alpha101_10_standard',
+            'alpha101_11_standard',
+            'alpha101_12_standard',
+            'alpha101_13_standard',
+            'alpha101_14_standard',
+            'alpha101_15_standard',
+            'alpha101_16_standard',
+            'alpha101_17_standard',
+            'alpha101_18_standard',
+            'alpha101_19_standard',
+            'alpha101_20_standard',
+            'alpha101_22_standard',
+            'alpha101_23_standard',
+            'alpha101_25_standard',
+            'alpha101_33_standard',
+            'alpha101_34_standard',
+            'alpha101_41_standard',
+            'alpha101_52_standard',
+            'alpha101_53_standard',
+            'alpha101_54_standard',
+            'alpha101_57_standard',
+            'alpha101_101_standard',
+            # ---- 动量（21）----
+            'momentum_12_1_standard',
             'ret_10d_standard',
             'ret_20d_standard',
             'ret_60d_standard',
+            'momentum_12_1_chg_5d_standard',
+            'momentum_12_1_chg_10d_standard',
+            'return_5d_standard',
+            'return_21d_standard',
+            'return_42d_standard',
+            'return_63d_standard',
+            'return_126d_standard',
+            'return_252d_standard',
+            'ma_20d_standard',
+            'price_position_ir_60d_standard',
+            'rsrs_standard',
+            'days_down_up_standard',
+            'return_std_21d_standard',
+            'return_std_42d_standard',
+            'return_std_63d_standard',
+            'return_std_126d_standard',
+            'return_std_252d_standard',
+            # ---- 风险/波动（14）----
+            'volatility_20d_standard',
+            'high_low_spread_standard',
+            'volatility_20d_chg_5d_standard',
+            'volatility_20d_chg_10d_standard',
+            'sharpe_60d_standard',
+            'sharpe_750d_standard',
+            'adjusted_sharpe_750d_standard',
+            'high_low_21d_standard',
+            'high_low_42d_standard',
+            'high_low_63d_standard',
+            'high_low_126d_standard',
+            'high_low_252d_standard',
+            'days_beyond_upper_lower_21d_standard',
+            'log_price_standard',
+            # ---- 流动性（30）----
+            'amount_ma_20d_standard',
+            'turnover_ma_20d_standard',
+            'sum_abs_rtn_amount_20d_standard',
+            'avg_turnover_5d_standard',
+            'avg_turnover_10d_standard',
+            'avg_turnover_20d_standard',
+            'std_turnover_21d_standard',
+            'std_turnover_42d_standard',
+            'std_turnover_63d_standard',
+            'std_turnover_126d_standard',
+            'std_turnover_252d_standard',
+            'avg_turnover_21d_standard',
+            'avg_turnover_42d_standard',
+            'avg_turnover_63d_standard',
+            'avg_turnover_126d_standard',
+            'avg_turnover_252d_standard',
+            'bias_turn_21d_252d_standard',
+            'bias_std_turn_21d_252d_standard',
+            'bias_turn_42d_252d_standard',
+            'bias_turn_63d_252d_standard',
+            'bias_turn_126d_252d_standard',
+            'bias_turn_21d_504d_standard',
+            'bias_std_turn_21d_504d_standard',
+            'bias_turn_42d_504d_standard',
+            'bias_std_turn_42d_504d_standard',
+            'bias_turn_63d_504d_standard',
+            'bias_std_turn_63d_504d_standard',
+            'bias_turn_126d_504d_standard',
+            'bias_std_turn_126d_504d_standard',
+            'turnover_ma_20d_120d_standard',
+            # ---- 质量/成长（9）----
+            'debt_to_assets_standard',
+            'gross_margin_standard',
+            'roe_ttm_standard',
+            'revenue_growth_yoy_standard',
+            'profit_growth_yoy_standard',
+            'accruals_standard',
+            'asset_growth_yoy_standard',
+            'roe_growth_yoy_standard',
+            'gross_margin_growth_standard',
+            # ---- 价值/风格（11）----
+            'size_factor_standard',
+            'smb_squared_standard',
+            'value_factor_standard',
+            'cma_factor_standard',
+            'smb_mom_standard',
+            'smb_squared_mom_standard',
+            'hml_rmw_standard',
+            'smb_hml_standard',
+            'vol_mom_standard',
+            'size_standard',
+            'float_size_standard',
+            # ---- 反转（6）----
+            'reversal_5d_standard',
             'dist_52w_high_standard',
+            'reversal_5d_chg_5d_standard',
+            'reversal_5d_chg_10d_standard',
+            'small_cap_reversal_21d_standard',
+            'price_dist_standard',
+            # ---- 微观结构/形态（12）----
             'close_ma20_ratio_standard',
             'up_day_ratio_20_standard',
             'vol_price_corr_20d_standard',
-            'adx_standard',
-            # 高频痕迹因子
             'turnover_amplitude_ratio_standard',
             'long_shadow_freq_standard',
             'doji_freq_standard',
             'intraday_drawdown_standard',
             'gap_vs_range_ratio_standard',
-            # 更多时序因子
-            'K_chg_5d_standard',
-            'K_chg_10d_standard',
-            'D_chg_5d_standard',   
-            'D_chg_10d_standard',   
-            'J_chg_5d_standard',   
-            'J_chg_10d_standard',
-            # 'rsi_chg_5d_standard',   
-            'rsi_chg_10d_standard',   
-            'macd_chg_5d_standard',  
-            'macd_chg_10d_standard',
-            'adx_chg_5d_standard',   
-            # 'adx_chg_10d_standard',
-            'volatility_20d_chg_5d_standard',   
-            'volatility_20d_chg_10d_standard',
-            'turnover_rate_x_chg_5d_standard',  
-            'turnover_rate_x_chg_10d_standard',
-            'reversal_5d_chg_5d_standard',   
-            'reversal_5d_chg_10d_standard',
-            'momentum_12_1_chg_5d_standard',    
-            # 'momentum_12_1_chg_10d',
-            'rzye_chg_5d_standard',  
-            'rzye_chg_10d_standard',
-            # 多项式形状因子
             'poly_close_a1_standard',
             'poly_close_a2_standard',
             'poly_vol_a1_standard',
@@ -135,10 +281,16 @@ class ElasticNetConfig:
 
         # ElasticNetCV 的 L1 比例搜索网格
         # 0 = 纯 Ridge（L2），1 = 纯 Lasso（L1），中间值为混合
-        self.l1_ratio_grid = [0.1, 0.5, 0.7, 0.9, 0.95, 1]
+        # 特征从 80 涨到 237 后，CV 成本 = len(l1_ratio_grid) × n_alphas × cv，
+        # 原 6×100×5 = 3000 次坐标下降，单次 fit 超过 5 分钟。收到 3×50×3 = 450
+        # 后降到约 1 分钟；L1 比例只需覆盖「偏 L2 / 混合 / 偏 L1」三档即可。
+        self.l1_ratio_grid = [0.1, 0.5, 0.9]
 
         # 交叉验证折数，用于选择最优超参数
-        self.cv = 5
+        self.cv = 3
+
+        # alpha 搜索路径长度（ElasticNetCV 默认 100）
+        self.n_alphas = 50
 
         # 是否对每日更新的因子权重做指数移动平滑（EMA）
         # 可减少模型在相邻交易日之间的权重跳变，使仓位更稳定
@@ -148,6 +300,49 @@ class ElasticNetConfig:
         # alpha 越小，历史权重影响越大，变化越平滑
         self.smooth_alpha = 0.2
 
+        # ---- 行业 / 市场 beta 特征 ----
+        # 由 strategy/market_features.py 在 DataLoader 层动态附加，无需重跑标准化。
+        # 目标若是 top-K 总收益，行业轮动是真实可赚的钱，必须显式喂给模型。
+
+        # ---- 因子集 ----
+        # 'curated' = 只用上面手工挑选的列表
+        # 'all'     = 手工列表 ∪ 数据中发现的全部因子（Alpha101 / 动量 / 风险 /
+        #             流动性 / 质量成长 / 价值等此前未被启用的族会一并进来）
+        # 线性模型默认用 curated：ElasticNetCV 要对 6 个 l1_ratio × 100 个 alpha
+        # × 5 折做坐标下降，237 个特征下单次 fit 会超过 5 分钟（树模型则无此问题，
+        # 211 个特征只要 9~20 秒）。想试全量可改成 'all'，但建议同时调小
+        # l1_ratio_grid 和 cv。
+        self.factor_set: str = 'curated'
+        # 'raw' = 原始因子列名（树模型）；'standard' = <因子>_standard（线性模型）
+        self.factor_style: str = 'standard'
+        self.add_market_features: bool = True
+        self.market_feature_zscore: bool = True   # 截面 z-score，线性模型必需
+        self.factor_cols += [
+            'ind_ret_1d', 'ind_ret_5d', 'ind_ret_20d',
+            'ind_up_5d', 'ind_up_20d',
+            'ind_flow_5d', 'ind_flow_20d',
+            'ind_mom_rank', 'ind_pe_z',
+            'mkt_ret_5d', 'mkt_ret_20d', 'mkt_up_1d', 'mkt_up_5d',
+        ]
+
+        # ---- 训练样本抽样 ----
+        # label_period=5 时相邻交易日的 label 共享未来价格，时间上不独立。
+        # sample_step=5 可让训练样本近似无重叠（配合更大的 window 使用）。
+        self.sample_step: int = 1
+        # ElasticNet 用的是 _standard（已做行业+市值中性化）列，属于纯 alpha；
+        # 再补上未被中性化的规模类列，配合上面的行业/市场特征，
+        # 让线性模型能同时学到 alpha 与 beta 两部分。
+        self.factor_cols += ['circ_mv_standard']
+
+
+        # 去重（防御）：factor_cols 若出现重名，pandas 的 df[cols] 会返回多列，
+        # 触发 "Columns must be same length as key"
+        _seen = set()
+        self.factor_cols = [c for c in self.factor_cols
+                            if not (c in _seen or _seen.add(c))]
+
+        # 数据中并不存在的列（会被填成全 0，对线性模型是纯噪声）
+        self.factor_cols = [c for c in self.factor_cols if c != 'lhb_strength_5d_standard']
 
 class ElasticNetStrategy(BaseStrategy):
     """
@@ -197,6 +392,8 @@ class ElasticNetStrategy(BaseStrategy):
             # 跳过最近 label_lookahead 天：label = (close[d+6]-close[d+1])/close[d+1]，
             # 需要 d+6 的价格才能确认，故 d+lookahead > today 的样本不能用于训练
             if j + self.cfg.label_lookahead > today_idx:
+                continue
+            if self.cfg.sample_step > 1 and (today_idx - j) % self.cfg.sample_step != 0:
                 continue
 
             t_date = all_dates[j]
@@ -249,11 +446,19 @@ class ElasticNetStrategy(BaseStrategy):
 
         X = X.astype(np.float64)
         y = y.astype(np.float64)
+        # 切分必须打乱：训练集是按日期堆叠的，若用未打乱的 KFold，
+        # 第 1 折会变成「用后 80% 的日期训练、前 20% 的日期验证」，
+        # 等于拿未来预测过去 —— CV 分数极差，ElasticNetCV 会直接选到最大正则，
+        # 把所有系数压成 0（实测：改之前 94 个权重全为 0，改之后 R2 约 3%）。
+        from sklearn.model_selection import KFold
+        cv = KFold(n_splits=self.cfg.cv, shuffle=True, random_state=42)
+
         # n_jobs=1：单线程跑 CV，避免多进程时 Gram 矩阵浮点精度校验失败
         # precompute='auto'（默认）：保留 Gram 矩阵缓存，坐标下降 O(p) 而非 O(n*p)
         model = ElasticNetCV(
             l1_ratio=self.cfg.l1_ratio_grid,
-            cv=self.cfg.cv,
+            cv=cv,
+            n_alphas=self.cfg.n_alphas,
             max_iter=5000,
             random_state=42,
             n_jobs=1,
